@@ -1,0 +1,14 @@
+# dsh-schedule-later: mount the host-side cordis service into DSH.
+# Note: this insert row mounts a fresh plugin; it does NOT override existing
+# loader rows, so no config re-statement is required.
+#
+# IMPORTANT: `name` must be the exact npm package name — the loader resolves
+# it as a package import from ~/.dsh/profiles/web/node_modules.
+#
+# No config block here on purpose: apply() resolves the data directory itself
+# ($HOME/.dsh/dsh-schedule-later). Loader patch values are applied literally —
+# brace-style {{ }} template placeholders are NOT evaluated, and a template
+# dataDir would create a literally-named placeholder directory.
+- insert:
+    - id: dsh-schedule-later
+      name: "dsh-schedule-later"

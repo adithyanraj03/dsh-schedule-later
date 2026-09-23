@@ -1,0 +1,20 @@
+# GitHub Pages configuration.
+#
+# This is all GitHub's built-in Jekyll needs. Settings -> Pages -> Deploy from a
+# branch -> main -> /docs, and the site builds from index.md on every push.
+#
+# `theme:` must be one of the themes GitHub Pages supports natively:
+# https://pages.github.com/themes/  — anything else needs a full Actions build.
+title: dsh-schedule-later
+description: >-
+  A DeepSeek Harness plugin that sends a message into a chat later — scheduled
+  by you from the message box, or by the model to come back on its own.
+theme: jekyll-theme-cayman
+
+# Shown on the header button of the cayman theme.
+show_downloads: false
+
+# Nothing in this folder but the site itself.
+exclude:
+  - Gemfile
+  - Gemfile.lock
