@@ -14,10 +14,10 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local publishing notes — kept out of the public repo
+# Local publishing notes and audit handoffs — kept out of the public repo
 PUBLISHING.md
 MARKETPLACE.md
-AUDIT-sidebar-footer.md
+AUDIT-*.md
 
 # Scratch release notes (per-release, never committed)
 .relnotes.md

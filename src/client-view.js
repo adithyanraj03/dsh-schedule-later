@@ -29,6 +29,13 @@ function createClientPluginBody(React) {
     ".dsl-pop{animation:dsl-pop .18s ease-out}",
     ".dsl-glow{animation:dsl-glow 3s ease-in-out infinite;transform-box:fill-box;transform-origin:center}",
     ".dsl-chip:hover{border-color:#3b82f6!important}",
+    // The in-chat list's scrollbar, in dsh's own style: a thin rounded thumb
+    // inset 2px on a clear track, no buttons.
+    ".dsl-dock-list::-webkit-scrollbar{width:8px}",
+    ".dsl-dock-list::-webkit-scrollbar-button{display:none;width:0;height:0}",
+    ".dsl-dock-list::-webkit-scrollbar-track{background:transparent}",
+    ".dsl-dock-list::-webkit-scrollbar-thumb{background-color:rgba(128,128,128,.4);border:2px solid transparent;background-clip:padding-box;border-radius:6px}",
+    ".dsl-dock-list::-webkit-scrollbar-thumb:hover{background-color:rgba(128,128,128,.6)}",
     "@keyframes dsl-sunturn{0%,100%{transform:rotate(0) scale(1)}50%{transform:rotate(45deg) scale(1.15)}}",
     "@keyframes dsl-moonglow{0%,100%{opacity:.6}50%{opacity:1}}",
     "@keyframes dsl-due{0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,0)}50%{box-shadow:0 0 0 3px rgba(59,130,246,.38)}}",
@@ -1084,17 +1091,28 @@ function createClientPluginBody(React) {
             },
           }, st.summary)
         : null,
-      visible.map((t) => {
-        const sky = skyRow(t.sendAt, now);
-        return h("div", { key: t.id, className: sky.className, style: { ...entryStyle, ...sky.style } }, [
-          h("div", { key: "src", style: srcStyle }, t.content),
-          h("div", { key: "meta", style: metaStyle }, [
-            whenPill(t.sendAt, now, isDark),
-            h("span", { key: "cd" }, sendsIn(t.sendAt, now)),
-            h("span", { key: "sp", style: { marginLeft: "auto" } }, cancelBtn(t.id)),
-          ]),
-        ]);
-      }),
+      // The entries scroll inside a capped box, so an expanded list of long
+      // messages never grows past the toggle above it: "Collapse ⌃" stays on
+      // screen however many are pending.
+      visible.length
+        ? h("div", {
+            key: "list", className: "dsl-dock-list", "data-plugin": "dsh-schedule-later-dock-list",
+            style: {
+              display: "flex", flexDirection: "column", gap: 2, width: "100%",
+              maxHeight: mobile ? "40vh" : "min(40vh, 320px)", overflowY: "auto", overscrollBehavior: "contain",
+            },
+          }, visible.map((t) => {
+            const sky = skyRow(t.sendAt, now);
+            return h("div", { key: t.id, className: sky.className, style: { ...entryStyle, ...sky.style, flex: "none" } }, [
+              h("div", { key: "src", style: srcStyle }, t.content),
+              h("div", { key: "meta", style: metaStyle }, [
+                whenPill(t.sendAt, now, isDark),
+                h("span", { key: "cd" }, sendsIn(t.sendAt, now)),
+                h("span", { key: "sp", style: { marginLeft: "auto" } }, cancelBtn(t.id)),
+              ]),
+            ]);
+          }))
+        : null,
     ]);
   }
 
@@ -1360,7 +1378,10 @@ function createClientPluginBody(React) {
         scope.slots.inject("conversation.input.dock", () => scope.slots.register({
           name: "conversation.input.dock",
           id: "dsh-schedule-later",
-          order: 30,
+          // The dock stacks by order, top to bottom: dsh's To-dos are 0, the
+          // goal 10, the queue 20. Above all of them, so the To-dos stay
+          // next to the message box.
+          order: -10,
           inject: (sessionId) => {
             currentSessionId = sessionId;
             core.setSession(sessionId);

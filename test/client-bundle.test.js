@@ -293,6 +293,35 @@ test('bundle FIX2: dock collapse policy — >1 shows ONLY the soonest entry + "N
   assert.match(JSON.stringify(texts(tree)), /1 scheduled/);
 });
 
+test('dock: sits above dsh\'s To-dos (order 0), goal (10) and queue (20), so the To-dos stay next to the message box', () => {
+  const captured = applySlots(loadBundle(dumbReact));
+  assert.equal(captured.dock.order, -10);
+});
+
+test('dock: an expanded list scrolls inside a capped box, with the Collapse toggle outside it', async () => {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod);
+  const core = captured.props.dock.core;
+  const base = Date.now() + 60_000;
+  const tasks = Array.from({ length: 8 }, (_, i) => ({ id: 't' + i, content: 'message ' + i, sendAt: base + i * 60_000, conversationId: 'sess-1' }));
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks }) });
+  await core.refresh();
+  const render = () => { react.reset(); return expandFn(captured.dock.__comp({ ...captured.props.dock })); };
+
+  let tree = render();
+  findAll(tree, (n) => n.type === 'button' && /7 more scheduled/.test(texts(n).join('')))[0].props.onClick();
+  tree = render();
+  const list = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-dock-list')[0];
+  assert.ok(list, 'the entries are wrapped in a list box');
+  assert.equal(list.props.style.overflowY, 'auto');
+  assert.equal(list.props.style.maxHeight, 'min(40vh, 320px)');
+  assert.equal(findAll(list, (n) => n.props?.style?.fontFamily === 'monospace').length, 8, 'all 8 are in the scrolling box');
+  const collapse = findAll(tree, (n) => n.type === 'button' && /Collapse/.test(texts(n).join('')))[0];
+  assert.ok(collapse, 'Collapse is rendered');
+  assert.equal(findAll(list, (n) => n === collapse).length, 0, 'and is not inside the scrolling box, so it cannot scroll away');
+});
+
 test('bundle FIX5: mobile (≤480px) — dock fully collapsed by default; popover near-full-width; touch targets ≥40px', async () => {
   const react = makeInteractiveReact();
   const mod = loadBundle(react);

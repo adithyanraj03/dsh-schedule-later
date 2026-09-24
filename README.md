@@ -73,7 +73,7 @@ An entry at the bottom of the sidebar, with a badge counting every pending messa
 
 ![Pending messages across chats, tinted by the time they send](assets/scheduled-panel.png)
 
-Pending messages for the current chat also appear in-chat, above the message box. With more than one, only the soonest is shown plus an “N more scheduled ⌄” toggle; any list can be collapsed by hand.
+Pending messages for the current chat also appear in-chat, above dsh's To-dos, which sit next to the message box. With more than one, only the soonest is shown plus an “N more scheduled ⌄” toggle; an expanded list scrolls within a fixed height so its “Collapse ⌃” toggle never scrolls away. Any list can be collapsed by hand.
 
 ### The model tools
 
