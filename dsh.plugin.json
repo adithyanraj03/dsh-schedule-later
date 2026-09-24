@@ -1,6 +1,6 @@
 {
   "id": "dsh-schedule-later",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "main": "./src/index.js",
   "description": "Schedule a message into a dsh chat for later: a Schedule button in the message box with a date and time picker, a sidebar panel of pending messages across chats, delivery as a normal user message even with the browser closed, and schedule_message, list_scheduled_messages and cancel_scheduled_message tools so the model can come back to a chat on its own.",
   "engines": {

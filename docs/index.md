@@ -42,7 +42,7 @@ Restart `dsh web` and hard-refresh the browser. A **⏱️ Schedule** button app
 
 ![Pending messages across chats, tinted by the time they send](assets/scheduled-panel.png)
 
-The sidebar panel lists every pending message in every chat, soonest first, each tinted by the time it sends. Click one to jump to its chat; cancel from here for any chat. A message in its last minute pulses.
+The sidebar panel lists every pending message in every chat, soonest first, each tinted by the time it sends. Click one for its details — the full message, and Send now, Change time or Cancel, each confirmed first. Click a chat's name to open it. A message in its last minute pulses.
 
 ---
 

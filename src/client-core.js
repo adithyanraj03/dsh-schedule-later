@@ -138,9 +138,10 @@ export function annotateSessions(tasks, sessionsById) {
  * @param {() => Promise<object>} deps.fetchState GET the host state route
  * @param {(payload:object)=>Promise<{task:object}>} deps.postSchedule
  * @param {(id:string)=>Promise<boolean>} deps.cancelSchedule
+ * @param {(id:string, when:number|'now')=>Promise<boolean>} [deps.rescheduleSchedule]
  * @param {() => number} [deps.now]
  */
-export function createScheduledClientState({ fetchState, postSchedule, cancelSchedule, now = () => Date.now() } = {}) {
+export function createScheduledClientState({ fetchState, postSchedule, cancelSchedule, rescheduleSchedule, now = () => Date.now() } = {}) {
   let tasks = [];
   let error = null;
   let timer = null;
@@ -256,6 +257,25 @@ export function createScheduledClientState({ fetchState, postSchedule, cancelSch
       recentAdds.delete(id);
       if (typeof this.onChanged === 'function') this.onChanged(id);
       if (cancelSchedule) await cancelSchedule(id);
+    },
+
+    /**
+     * Move a pending task to a new time, or 'now' to send it at once. Like
+     * cancel: the row moves (or goes) locally first, then the host call
+     * persists it; a failure refreshes back to the server's truth.
+     */
+    async rescheduleTask(id, when) {
+      const at = when === 'now' ? now() : when;
+      if (when === 'now') tasks = tasks.filter((t) => t.id !== id); // it is being sent
+      else tasks = tasks.map((t) => (t.id === id ? { ...t, sendAt: at } : t));
+      if (typeof this.onChanged === 'function') this.onChanged(when === 'now' ? id : null);
+      let ok = false;
+      try {
+        ok = rescheduleSchedule ? await rescheduleSchedule(id, when) : false;
+      } finally {
+        if (!ok) await this.refresh().catch(() => {});
+      }
+      return ok;
     },
 
     start(intervalMs = 4_000) {

@@ -155,3 +155,39 @@ test('0.3.0 GET state WITHOUT conversationId returns ALL sessions’ tasks (pane
   assert.deepEqual(body.tasks.map((t) => t.conversationId), ['sess-A', 'sess-B'], 'all sessions, ascending');
   assert.ok(body.tasks.every((t) => typeof t.conversationId === 'string' && t.conversationId), 'conversationId present on every task');
 });
+
+// --- PATCH: move a pending task, or send it now ------------------------------
+
+test('PATCH {sendAt} moves a pending task to a new future time, keeping id and content', async () => {
+  const { call, scheduler } = await mkStack();
+  const task = await scheduler.schedule({ content: 'later', sendAt: 5_000, conversationId: 'c1' });
+  const res = await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { sendAt: 9_000 });
+  assert.equal(res.status, 200);
+  assert.equal(jsonOf(res).task.sendAt, 9_000);
+  const [after] = scheduler.list();
+  assert.equal(after.id, task.id);
+  assert.equal(after.content, 'later');
+  assert.equal(after.sendAt, 9_000);
+});
+
+test('PATCH {now: true} delivers the task on the next tick', async () => {
+  const delivered = [];
+  const { call, scheduler } = await mkStack({ deliver: async (it) => delivered.push(it.content) });
+  const task = await scheduler.schedule({ content: 'go now', sendAt: 50_000, conversationId: 'c1' });
+  const res = await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { now: true });
+  assert.equal(res.status, 200);
+  assert.equal(jsonOf(res).task.sendAt, 1_000, 'moved to the host clock\'s now');
+  await scheduler.tick();
+  assert.deepEqual(delivered, ['go now']);
+  assert.equal(scheduler.list().length, 0);
+});
+
+test('PATCH refuses a past time, a missing id and an unknown task', async () => {
+  const { call, scheduler } = await mkStack();
+  const task = await scheduler.schedule({ content: 'x', sendAt: 5_000, conversationId: 'c1' });
+  assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { sendAt: 500 })).status, 400, 'past');
+  assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, {})).status, 400, 'neither now nor sendAt');
+  assert.equal((await call('PATCH', SCHEDULE_PATH, { now: true })).status, 400, 'no id');
+  assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=nope`, { now: true })).status, 404, 'unknown');
+  assert.equal(scheduler.list()[0].sendAt, 5_000, 'the task is unchanged by refused calls');
+});

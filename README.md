@@ -14,7 +14,7 @@ It does five things:
 
 - **A ⏱️ Schedule button in the message box** — a day/night scheduler with a sky header that follows the chosen time, an analog clock, an AM/PM sun-and-moon pill and quick picks, on the same row as Send.
 - **Host-side delivery** — timing and message injection both run inside the dsh host process, so the browser is only a view; it works with the tab closed.
-- **A sidebar “⏱️ Scheduled” panel** — every pending message across all chats, soonest first, tinted by the time it sends, with a click-through to each chat.
+- **A sidebar “⏱️ Scheduled” panel** — every pending message across all chats, grouped by chat, soonest first, tinted by the time it sends, where each message can be sent now, re-timed or cancelled.
 - **Three tools for the model** — `schedule_message`, `list_scheduled_messages`, `cancel_scheduled_message` — so the assistant can come back to a chat on its own.
 - **A `schedule-later` skill** — teaches the model when to schedule its own check-ins unprompted.
 
@@ -65,11 +65,11 @@ On phones and narrow windows (≤480px) the picker folds into a near-full-width 
 
 ![The folded layout used on phones and narrow windows](assets/scheduler-compact.png)
 
-Cancel any pending message from the in-chat list or the sidebar panel.
+Cancel any pending message from the in-chat list or the sidebar panel — both ask first.
 
 ### The sidebar panel
 
-An entry at the bottom of the sidebar, with a badge counting every pending message, opens a panel listing pending messages across **all chats** — soonest first, with a content preview in monospace, the send time, a countdown and the chat name. **Click an entry to jump to its chat.** Cancel from here for any chat. Entries whose chat was deleted are greyed out but can still be cancelled.
+An entry at the bottom of the sidebar, with a badge counting every pending message, opens a panel listing pending messages across **all chats**, soonest first, each row showing the message in monospace (clamped to two lines), the send time and a countdown. Messages are grouped under their chat — click the chat's name to open it. Click a message for its details: the full text, who scheduled it and when, and Send now, Change time and Cancel. Send now and Cancel ask for confirmation first. Cancel from here for any chat. Entries whose chat was deleted are greyed out but can still be cancelled.
 
 ![Pending messages across chats, tinted by the time they send](assets/scheduled-panel.png)
 

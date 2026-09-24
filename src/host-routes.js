@@ -61,8 +61,27 @@ export function registerScheduledSendRoutes(webServer, cache) {
     path: SCHEDULE_PATH,
     handler: async (req = {}, res) => {
       const method = (req.method || 'GET').toUpperCase();
-      if (method !== 'POST' && method !== 'DELETE') {
+      if (method !== 'POST' && method !== 'DELETE' && method !== 'PATCH') {
         sendJson(res, 405, { error: 'method not allowed' });
+        return;
+      }
+      // PATCH ?id= {sendAt} moves a pending task; {now: true} sends it now.
+      if (method === 'PATCH') {
+        const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id');
+        if (!id) { sendJson(res, 400, { error: 'missing id parameter' }); return; }
+        const body = await readBody(req);
+        if (body === null || typeof body !== 'object') { sendJson(res, 400, { error: 'request body must be a JSON object' }); return; }
+        let sendAt;
+        if (body.now === true) {
+          sendAt = now();
+        } else if (typeof body.sendAt === 'number' && Number.isFinite(body.sendAt) && body.sendAt > now()) {
+          sendAt = body.sendAt;
+        } else {
+          sendJson(res, 400, { error: 'give {now: true}, or a future sendAt (epoch ms)' });
+          return;
+        }
+        const task = await cache.scheduler?.reschedule?.(id, sendAt);
+        sendJson(res, task ? 200 : 404, task ? { task } : { error: 'task not found, or already sent' });
         return;
       }
       if (method === 'DELETE') {

@@ -462,18 +462,34 @@ test('sidebar: entry click jumps via sessions.open; missing session → greyed o
   const rows = findAll(tree, (n) => n.props?.['data-task']);
   assert.equal(rows.length, 2);
 
-  // click the live entry → sessions.open(sessionId)
+  // click the live entry → its details card; "Open chat" there → sessions.open(sessionId)
   rows.find((r) => r.props['data-task'] === 't1').props.onClick();
-  assert.equal(sessions.opened.length, 1, 'entry click calls sessions.open once');
+  assert.equal(sessions.opened.length, 0, 'a row click opens the details, not the chat');
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
+  const card = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-detail')[0];
+  assert.ok(card, 'details card open');
+  findAll(card, (n) => n.type === 'button' && /Open chat/.test(texts(n).join('')))[0].props.onClick({});
+  assert.equal(sessions.opened.length, 1, 'Open chat calls sessions.open once');
   assert.equal(sessions.opened[0], 'sess-1');
 
+  // Open chat closed the panel, as a jump should; reopen it for the rest.
+  react.reset();
+  findAll(expandFn(captured.sidebar.__comp({})), (n) => n.type === 'button' && /Scheduled/.test(texts(n).join('')))[0].props.onClick();
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
   // missing-session entry: grayed (opacity < 1), labelled "Chat no longer exists", click does NOT navigate, cancel still works
-  const orphan = rows.find((r) => r.props['data-task'] === 't2');
+  const orphan = findAll(tree, (n) => n.props?.['data-task'] === 't2')[0];
   assert.ok(Number(orphan.props.style.opacity) < 1, 'orphan entry grayed');
-  assert.match(JSON.stringify(texts(orphan)), /Chat no longer exists/, 'missing-session label');
+  // Rows are grouped by chat; the label is on the orphan chat's heading.
+  const orphanGroup = findAll(tree, (n) => n.props?.['data-group'] === 'gone:gone')[0];
+  assert.match(JSON.stringify(texts(orphanGroup)), /Chat no longer exists/, 'missing-session label on its chat heading');
   const before = sessions.opened.length;
   orphan.props.onClick();
   assert.equal(sessions.opened.length, before, 'orphan click does not navigate');
+  react.reset();
+  const orphanCard = findAll(expandFn(captured.sidebar.__comp({})), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-detail')[0];
+  assert.equal(findAll(orphanCard, (n) => n.type === 'button' && /Open chat/.test(texts(n).join(''))).length, 0, 'no Open chat for a deleted chat');
   const cancel = findAll(orphan, (n) => n.type === 'button' && /Cancel/.test(texts(n).join('')))[0];
   assert.ok(cancel, 'cancel button on the orphan entry');
   const del = [];
@@ -481,7 +497,13 @@ test('sidebar: entry click jumps via sessions.open; missing session → greyed o
     if ((opts.method || 'GET') === 'DELETE') { del.push(path); return { ok: true, json: async () => ({}) }; }
     return { ok: true, json: async () => ({ now: 0, tasks: allTasks.filter((t) => t.id !== 't2') }) };
   };
-  await cancel.props.onClick();
+  cancel.props.onClick({});
+  assert.equal(del.length, 0, 'Cancel asks first');
+  react.reset();
+  const dialog = findAll(expandFn(captured.sidebar.__comp({})), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-confirm')[0];
+  assert.ok(dialog, 'a confirmation dialog');
+  findAll(dialog, (n) => n.type === 'button' && /Cancel message/.test(texts(n).join('')))[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
   assert.equal(del.length, 1, 'cancel reuses the existing DELETE route');
   assert.match(del[0], /schedule\?id=t2$/);
 });
@@ -727,4 +749,464 @@ test('rows: only a message in its last minute pulses', async () => {
   assert.match(soon.props.className, /dsl-due/);
   const later = await dockRowFor(Date.now() + 10 * 60_000);
   assert.doesNotMatch(later.props.className, /dsl-due/);
+});
+
+/* ---- sidebar footer entry: sized like Settings, icon-only when collapsed ------- */
+
+async function sidebarWith(tasks) {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks }) });
+  const render = (wide) => { react.reset(); return expandFn(captured.sidebar.__comp({ wide })); };
+  render(true);
+  react.runEffects(); // the mount effect polls the full state
+  await new Promise((r) => setTimeout(r, 5));
+  return render;
+}
+const TASKS = [
+  { id: 'a', content: 'one', sendAt: Date.now() + 60_000, conversationId: 's1' },
+  { id: 'b', content: 'two', sendAt: Date.now() + 120_000, conversationId: 's2' },
+];
+
+test('sidebar: the expanded row has the Settings row measurements', async () => {
+  const render = await sidebarWith(TASKS);
+  const tree = render(true);
+  const root = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar')[0];
+  assert.equal(root.props.style.height, 50);
+  assert.equal(root.props.style.margin, 0);
+  const btn = findAll(root, (n) => n.type === 'button')[0];
+  assert.equal(btn.props.style.height, 42);
+  assert.equal(btn.props.style.width, 'calc(100% + 4px)');
+  assert.equal(btn.props.style.margin, '0 -2px');
+  assert.equal(btn.props.style.padding, '0 10px 0 8px');
+  assert.match(texts(btn).join(''), /Scheduled/);
+});
+
+test('sidebar: collapsed (wide: false) shows the stopwatch alone, the count as a corner badge', async () => {
+  const render = await sidebarWith(TASKS);
+  const tree = render(false);
+  const root = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar')[0];
+  assert.equal(root.props.style.justifyContent, 'center');
+  const btn = findAll(root, (n) => n.type === 'button')[0];
+  assert.equal(btn.props.style.width, 36);
+  assert.equal(btn.props.style.height, 36);
+  assert.doesNotMatch(texts(btn).join(''), /Scheduled/, 'no label on the rail');
+  assert.equal(btn.props.title, 'Scheduled messages (2)');
+  const badge = findAll(btn, (n) => n.props?.['data-badge'] !== undefined)[0];
+  assert.equal(badge.props.style.position, 'absolute');
+  assert.deepEqual(badge.props.children, ['2']);
+});
+
+test('sidebar: collapsed with nothing pending shows no badge', async () => {
+  const render = await sidebarWith([]);
+  const btn = findAll(render(false), (n) => n.type === 'button')[0];
+  assert.equal(findAll(btn, (n) => n.props?.['data-badge'] !== undefined).length, 0);
+  assert.equal(btn.props.title, 'Scheduled messages');
+});
+
+test('sidebar: the panel opens beside the collapsed rail, not over it', async () => {
+  for (const [wide, left] of [[true, 12], [false, 64]]) {
+    const render = await sidebarWith(TASKS);
+    findAll(render(wide), (n) => n.type === 'button')[0].props.onClick();
+    const panel = findAll(render(wide), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar-panel')[0];
+    assert.ok(panel, `panel open (wide: ${wide})`);
+    assert.equal(panel.props.style.left, left);
+  }
+});
+
+/* ---- sidebar panel: closes like a menu ------------------------------------ */
+
+function fakeDom() {
+  const on = { doc: {}, win: {} };
+  const reg = (bag) => ({
+    addEventListener: (t, fn) => { (bag[t] ||= new Set()).add(fn); },
+    removeEventListener: (t, fn) => { bag[t]?.delete(fn); },
+  });
+  return {
+    on,
+    document: { ...reg(on.doc), activeElement: null },
+    window: reg(on.win),
+    fire: (bag, type, ev) => { for (const fn of [...(on[bag][type] || [])]) fn(ev); },
+  };
+}
+
+async function openPanel(dom) {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks: TASKS }) });
+  global.document = dom.document;
+  Object.assign(global.window, dom.window);
+  const render = () => { react.reset(); return expandFn(captured.sidebar.__comp({ wide: true })); };
+  let tree = render();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  findAll(render(), (n) => n.type === 'button' && n.props['aria-label'] === 'Scheduled messages')[0].props.onClick();
+  tree = render();
+  // Attach the root "element": it contains only what we call 'inside'.
+  const root = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar')[0];
+  root.props.ref.current = { contains: (t) => t === 'inside' };
+  react.runEffects(); // the open effect installs the listeners
+  const isOpen = () => findAll(render(), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar-panel').length === 1;
+  return { isOpen };
+}
+
+test('sidebar panel: a press outside closes it; a press inside does not', async () => {
+  const dom = fakeDom();
+  const { isOpen } = await openPanel(dom);
+  assert.ok(isOpen(), 'opened');
+  dom.fire('doc', 'pointerdown', { target: 'inside' });
+  assert.ok(isOpen(), 'a press inside the panel or on its button keeps it open');
+  dom.fire('doc', 'pointerdown', { target: 'outside' });
+  assert.ok(!isOpen(), 'a press anywhere else closes it');
+  delete global.document;
+});
+
+test('sidebar panel: Esc closes it', async () => {
+  const dom = fakeDom();
+  const { isOpen } = await openPanel(dom);
+  dom.fire('doc', 'keydown', { key: 'Enter' });
+  assert.ok(isOpen(), 'other keys do nothing');
+  dom.fire('doc', 'keydown', { key: 'Escape' });
+  assert.ok(!isOpen());
+  delete global.document;
+});
+
+test('sidebar panel: focus moving into an iframe (e.g. the graft viz tab) closes it', async () => {
+  const dom = fakeDom();
+  const { isOpen } = await openPanel(dom);
+  dom.document.activeElement = { tagName: 'BODY' };
+  dom.fire('win', 'blur', {});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.ok(isOpen(), 'leaving the window for another app does not close it');
+  dom.document.activeElement = { tagName: 'IFRAME' };
+  dom.fire('win', 'blur', {});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.ok(!isOpen(), 'clicking into an iframe does');
+  delete global.document;
+});
+
+/* ---- sidebar panel: grouped by chat, day headings, row actions ------------ */
+
+async function panelWith(tasks, sessionsById, fetchImpl) {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod, mkSessions(sessionsById));
+  globalThis.fetch = fetchImpl || (async () => ({ ok: true, json: async () => ({ now: 0, tasks }) }));
+  const render = () => { react.reset(); return expandFn(captured.sidebar.__comp({ wide: true })); };
+  const tree = render();
+  findAll(tree, (n) => n.type === 'button' && n.props['aria-label'] === 'Scheduled messages')[0].props.onClick();
+  render();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  return render;
+}
+const atDay = (days, hh, mm) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hh, mm, 0, 0); return d.getTime(); };
+const pad2 = (n) => String(n).padStart(2, '0');
+
+test('panel: rows are grouped by chat under one heading each, soonest chat first', async () => {
+  const soon = Date.now() + 120_000;
+  const render = await panelWith([
+    { id: 'a1', content: 'first in A', sendAt: soon, conversationId: 'A' },
+    { id: 'b1', content: 'first in B', sendAt: soon + 60_000, conversationId: 'B' },
+    { id: 'a2', content: 'second in A', sendAt: soon + 120_000, conversationId: 'A' },
+  ], { A: { id: 'A', displayTitle: 'Chat A' }, B: { id: 'B', displayTitle: 'Chat B' } });
+  const tree = render();
+  const groups = findAll(tree, (n) => n.props?.['data-group']);
+  assert.deepEqual(groups.map((g) => g.props['data-group']), ['A', 'B']);
+  assert.deepEqual(findAll(groups[0], (n) => n.props?.['data-task']).map((r) => r.props['data-task']), ['a1', 'a2']);
+  const flat = JSON.stringify(texts(tree));
+  assert.equal(flat.split('Chat A').length - 1, 1, 'the chat title appears once, on its heading');
+});
+
+test('panel: the whole message is shown, clamped to two lines, no native tooltip', async () => {
+  const long = 'x'.repeat(300);
+  const render = await panelWith([{ id: 't', content: long, sendAt: Date.now() + 120_000, conversationId: 'A' }], { A: { id: 'A', displayTitle: 'A' } });
+  const body = findAll(render(), (n) => n.props && 'data-content' in n.props)[0];
+  assert.equal(body.props.title, undefined, 'no native tooltip: the details card shows the full text');
+  assert.equal(findAll(render(), (n) => n.props?.['data-task'])[0].props.title, undefined);
+  assert.equal(body.props.style.WebkitLineClamp, 2);
+  assert.deepEqual(body.props.children, [long], 'not cut to 50 characters any more');
+});
+
+test('panel: a day heading wherever the day changes; none for Today', async () => {
+  const render = await panelWith([
+    { id: 'tom1', content: 'b', sendAt: atDay(1, 9, 0), conversationId: 'A' },
+    { id: 'tom2', content: 'c', sendAt: atDay(1, 10, 0), conversationId: 'A' },
+    { id: 'later', content: 'd', sendAt: atDay(3, 9, 0), conversationId: 'A' },
+    { id: 'today', content: 'a', sendAt: Date.now() + 60_000, conversationId: 'B' },
+  ], { A: { id: 'A', displayTitle: 'A' }, B: { id: 'B', displayTitle: 'B' } });
+  const tree = render();
+  const daysIn = (key) => findAll(findAll(tree, (n) => n.props?.['data-group'] === key)[0], (n) => n.props?.['data-day']).map((n) => n.props['data-day']);
+  const a = daysIn('A');
+  assert.equal(a.length, 2, 'Tomorrow once for its two rows, then the later day');
+  assert.equal(a[0], 'Tomorrow');
+  const b = daysIn('B');
+  // a message due within the minute is Today unless the test runs at 23:59
+  if (new Date(Date.now() + 60_000).getDate() === new Date().getDate()) assert.deepEqual(b, [], 'Today needs no heading');
+});
+
+test('panel: Send now opens a confirmation, then PATCHes {now: true}', async () => {
+  const calls = [];
+  const tasks = [{ id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A' }];
+  const render = await panelWith(tasks, { A: { id: 'A', displayTitle: 'A' } }, async (path, opts = {}) => {
+    if (opts.method === 'PATCH') { calls.push({ path, body: JSON.parse(opts.body) }); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ now: 0, tasks }) };
+  });
+  findAll(render(), (n) => n.type === 'button' && n.props['aria-label'] === 'Send now')[0].props.onClick({});
+  assert.equal(calls.length, 0, 'the icon only asks');
+  const dialog = findAll(render(), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-confirm')[0];
+  assert.match(JSON.stringify(texts(dialog)), /Send this message now\?/);
+  const confirm = findAll(dialog, (n) => n.type === 'button' && /^Send now$/.test(texts(n).join('')))[0];
+  confirm.props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].path, /schedule\?id=t1$/);
+  assert.deepEqual(calls[0].body, { now: true });
+});
+
+test('panel: Change time edits in place, refuses the past, PATCHes the new sendAt', async () => {
+  const calls = [];
+  const tasks = [{ id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A' }];
+  const render = await panelWith(tasks, { A: { id: 'A', displayTitle: 'A' } }, async (path, opts = {}) => {
+    if (opts.method === 'PATCH') { calls.push(JSON.parse(opts.body)); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ now: 0, tasks }) };
+  });
+  findAll(render(), (n) => n.type === 'button' && n.props['aria-label'] === 'Change time')[0].props.onClick({});
+  let input = findAll(render(), (n) => n.type === 'input' && n.props.type === 'datetime-local')[0];
+  assert.ok(input, "a time field replaces the row's time line");
+  input.props.onChange({ target: { value: '2001-01-01T09:00' } });
+  findAll(render(), (n) => n.type === 'button' && /^Save$/.test(texts(n).join('')))[0].props.onClick({});
+  assert.match(JSON.stringify(texts(render())), /Pick a time in the future/);
+  assert.equal(calls.length, 0, 'nothing sent for a past time');
+  const target = new Date(Date.now() + 2 * 86_400_000);
+  target.setSeconds(0, 0);
+  const value = `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}T${pad2(target.getHours())}:${pad2(target.getMinutes())}`;
+  input = findAll(render(), (n) => n.type === 'input' && n.props.type === 'datetime-local')[0];
+  input.props.onChange({ target: { value } });
+  findAll(render(), (n) => n.type === 'button' && /^Save$/.test(texts(n).join('')))[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(calls, [{ sendAt: target.getTime() }]);
+  assert.equal(findAll(render(), (n) => n.type === 'input').length, 0, 'the editor closes');
+});
+
+test('panel: Cancel all for a chat asks first, then cancels every message in it', async () => {
+  const del = [];
+  const tasks = [
+    { id: 'a1', content: 'x', sendAt: Date.now() + 120_000, conversationId: 'A' },
+    { id: 'a2', content: 'y', sendAt: Date.now() + 180_000, conversationId: 'A' },
+    { id: 'b1', content: 'z', sendAt: Date.now() + 240_000, conversationId: 'B' },
+  ];
+  const render = await panelWith(tasks, { A: { id: 'A', displayTitle: 'A' }, B: { id: 'B', displayTitle: 'B' } }, async (path, opts = {}) => {
+    if (opts.method === 'DELETE') { del.push(path); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ now: 0, tasks }) };
+  });
+  const group = (key) => findAll(render(), (n) => n.props?.['data-group'] === key)[0];
+  assert.equal(findAll(group('B'), (n) => n.type === 'button' && /Cancel all/.test(texts(n).join(''))).length, 0, 'no Cancel all for a single message');
+  findAll(group('A'), (n) => n.type === 'button' && /Cancel all/.test(texts(n).join('')))[0].props.onClick({});
+  assert.equal(del.length, 0, 'asks first');
+  const dialog = findAll(render(), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-confirm')[0];
+  assert.match(JSON.stringify(texts(dialog)), /Cancel all 2 scheduled messages\?/);
+  findAll(dialog, (n) => n.type === 'button' && /^Cancel 2 messages$/.test(texts(n).join('')))[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(del.map((p) => p.split('id=')[1]).sort(), ['a1', 'a2']);
+});
+
+/* ---- sidebar panel: the details card ------------------------------------- */
+
+const detailOf = (tree) => findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-detail')[0];
+
+test('details: clicking a message opens its card with the full text, time, chat and author', async () => {
+  const long = 'line one\n' + 'y'.repeat(400);
+  const render = await panelWith([
+    { id: 't1', content: long, sendAt: Date.now() + 600_000, conversationId: 'A', createdAt: Date.now() - 3_600_000, meta: { scheduledBy: 'assistant' } },
+  ], { A: { id: 'A', displayTitle: 'Chat A' } });
+  assert.equal(detailOf(render()), undefined, 'closed until a row is clicked');
+  findAll(render(), (n) => n.props?.['data-task'] === 't1')[0].props.onClick();
+  const card = detailOf(render());
+  assert.ok(card, 'opened');
+  const pre = findAll(card, (n) => n.props && 'data-detail-content' in n.props)[0];
+  assert.deepEqual(pre.props.children, [long], 'the whole message, not clamped');
+  const flat = JSON.stringify(texts(card));
+  assert.match(flat, /Scheduled by the assistant/);
+  assert.match(flat, /Chat A/);
+  assert.match(flat, /1 h ago/);
+  assert.match(flat, /\[Scheduled by the assistant\]/, 'says how it will arrive');
+  // clicking the same row again closes it
+  findAll(render(), (n) => n.props?.['data-task'] === 't1')[0].props.onClick();
+  assert.equal(detailOf(render()), undefined);
+});
+
+test('details: a message you scheduled says so; a failed delivery is shown', async () => {
+  const render = await panelWith([
+    { id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A', attempts: 2, lastError: 'agent busy' },
+  ], { A: { id: 'A', displayTitle: 'A' } });
+  findAll(render(), (n) => n.props?.['data-task'] === 't1')[0].props.onClick();
+  const flat = JSON.stringify(texts(detailOf(render())));
+  assert.match(flat, /Scheduled by you/);
+  assert.match(flat, /Delivery tried 2 times/);
+  assert.match(flat, /agent busy/);
+});
+
+test('details: Send now (confirmed), Change time and Cancel act on that message', async () => {
+  const calls = [];
+  const tasks = [{ id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A' }];
+  const render = await panelWith(tasks, { A: { id: 'A', displayTitle: 'A' } }, async (path, opts = {}) => {
+    if (opts.method === 'PATCH' || opts.method === 'DELETE') { calls.push({ method: opts.method, path, body: opts.body ? JSON.parse(opts.body) : null }); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ now: 0, tasks }) };
+  });
+  const btn = (re) => findAll(detailOf(render()), (n) => n.type === 'button' && re.test(texts(n).join('')))[0];
+  findAll(render(), (n) => n.props?.['data-task'] === 't1')[0].props.onClick();
+
+  // Change time opens its editor in the card, not in the row
+  btn(/^Change time$/).props.onClick({});
+  assert.equal(findAll(detailOf(render()), (n) => n.type === 'input').length, 1, 'editor in the card');
+  assert.equal(findAll(render(), (n) => n.type === 'input').length, 1, 'and only there');
+  btn(/^Back$/).props.onClick({});
+
+  btn(/^Send now$/).props.onClick({});
+  assert.equal(calls.length, 0, 'it asks first');
+  const dialog = findAll(render(), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-confirm')[0];
+  findAll(dialog, (n) => n.type === 'button' && /^Send now$/.test(texts(n).join('')))[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(calls.map((c) => [c.method, c.body]), [['PATCH', { now: true }]]);
+  assert.equal(detailOf(render()), undefined, 'the card closes once it is sent');
+});
+
+test('details: Esc closes the card first, then the panel', async () => {
+  const dom = fakeDom();
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod, mkSessions({ A: { id: 'A', displayTitle: 'A' } }));
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks: [{ id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A' }] }) });
+  global.document = dom.document;
+  Object.assign(global.window, dom.window);
+  const render = () => { react.reset(); return expandFn(captured.sidebar.__comp({ wide: true })); };
+  render();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  findAll(render(), (n) => n.type === 'button' && n.props['aria-label'] === 'Scheduled messages')[0].props.onClick();
+  render();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  findAll(render(), (n) => n.props?.['data-task'] === 't1')[0].props.onClick();
+  assert.ok(detailOf(render()), 'card open');
+  dom.fire('doc', 'keydown', { key: 'Escape' });
+  assert.equal(detailOf(render()), undefined, 'first Esc: the card');
+  assert.equal(findAll(render(), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar-panel').length, 1, 'the panel stays');
+  dom.fire('doc', 'keydown', { key: 'Escape' });
+  assert.equal(findAll(render(), (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar-panel').length, 0, 'second Esc: the panel');
+  delete global.document;
+});
+
+/* ---- confirmations and tooltips ------------------------------------------- */
+
+const confirmOf = (tree) => findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-confirm')[0];
+
+test('confirm: says what will happen, shows the message, and Keep / the backdrop do nothing', async () => {
+  const calls = [];
+  const tasks = [{ id: 't1', content: 'Push the release tag', sendAt: atDay(1, 9, 30), conversationId: 'A' }];
+  const render = await panelWith(tasks, { A: { id: 'A', displayTitle: 'Release chat' } }, async (path, opts = {}) => {
+    if (opts.method) calls.push(opts.method);
+    return { ok: true, json: async () => ({ now: 0, tasks }) };
+  });
+  const row = () => findAll(render(), (n) => n.props?.['data-task'] === 't1')[0];
+  findAll(row(), (n) => n.type === 'button' && /^Cancel$/.test(texts(n).join('')))[0].props.onClick({});
+  let dialog = confirmOf(render());
+  const flat = JSON.stringify(texts(dialog));
+  assert.match(flat, /Cancel this scheduled message\?/);
+  assert.match(flat, /9:30 AM/, 'names the time it would have gone out');
+  assert.equal(findAll(dialog, (n) => n.props && 'data-confirm-preview' in n.props)[0].props.children[0], 'Push the release tag');
+  assert.equal(findAll(dialog, (n) => n.props?.role === 'alertdialog').length, 1);
+  findAll(dialog, (n) => n.type === 'button' && /Keep it scheduled/.test(texts(n).join('')))[0].props.onClick({});
+  assert.equal(confirmOf(render()), undefined, 'Keep closes it');
+  findAll(row(), (n) => n.type === 'button' && n.props['aria-label'] === 'Send now')[0].props.onClick({});
+  dialog = confirmOf(render());
+  assert.match(JSON.stringify(texts(dialog)), /Release chat/, 'names the chat it goes into');
+  dialog.props.onClick({});
+  assert.equal(confirmOf(render()), undefined, 'the backdrop closes it');
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(calls, [], 'nothing was sent or cancelled');
+});
+
+test('confirm: Esc closes the dialog before the card and the panel', async () => {
+  const dom = fakeDom();
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod, mkSessions({ A: { id: 'A', displayTitle: 'A' } }));
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks: [{ id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A' }] }) });
+  global.document = dom.document;
+  Object.assign(global.window, dom.window);
+  const render = () => { react.reset(); return expandFn(captured.sidebar.__comp({ wide: true })); };
+  render();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  findAll(render(), (n) => n.type === 'button' && n.props['aria-label'] === 'Scheduled messages')[0].props.onClick();
+  render();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  findAll(render(), (n) => n.props?.['data-task'] === 't1')[0].props.onClick();
+  findAll(detailOf(render()), (n) => n.type === 'button' && /Cancel message/.test(texts(n).join('')))[0].props.onClick({});
+  assert.ok(confirmOf(render()), 'dialog up');
+  dom.fire('doc', 'keydown', { key: 'Escape' });
+  assert.equal(confirmOf(render()), undefined, 'first Esc: the dialog');
+  assert.ok(detailOf(render()), 'the card stays');
+  dom.fire('doc', 'keydown', { key: 'Escape' });
+  assert.equal(detailOf(render()), undefined, 'second Esc: the card');
+  delete global.document;
+});
+
+test('confirm: the in-chat list\'s Cancel asks too', async () => {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const captured = applySlots(mod);
+  const core = captured.props.dock.core;
+  const del = [];
+  const tasks = [{ id: 'd1', content: 'check CI', sendAt: Date.now() + 600_000, conversationId: 'sess-1' }];
+  globalThis.fetch = async (path, opts = {}) => {
+    if (opts.method === 'DELETE') { del.push(path); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ now: 0, tasks }) };
+  };
+  await core.refresh();
+  const render = () => { react.reset(); return expandFn(captured.dock.__comp({ ...captured.props.dock })); };
+  findAll(render(), (n) => n.type === 'button' && /^Cancel$/.test(texts(n).join('')))[0].props.onClick();
+  assert.equal(del.length, 0, 'asks first');
+  const dialog = confirmOf(render());
+  assert.match(JSON.stringify(texts(dialog)), /Cancel this scheduled message\?/);
+  findAll(dialog, (n) => n.type === 'button' && /Cancel message/.test(texts(n).join('')))[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(del.length, 1);
+});
+
+test('tooltips: icon buttons use the styled label, not the native title', async () => {
+  const render = await panelWith([{ id: 't1', content: 'x', sendAt: Date.now() + 600_000, conversationId: 'A' }], { A: { id: 'A', displayTitle: 'A' } });
+  const icons = findAll(render(), (n) => n.type === 'button' && n.props['data-tip']);
+  assert.deepEqual(icons.map((b) => b.props['data-tip']).sort(), ['Change time', 'Send now']);
+  for (const b of icons) {
+    assert.equal(b.props.title, undefined, 'no native tooltip');
+    assert.match(b.props.className, /dsl-tip/);
+  }
+});
+
+test('confirm: Send now has a red button; its paper plane is amber for a day send, blue for a night one', async () => {
+  const tasks = [
+    { id: 'day', content: 'x', sendAt: atDay(1, 10, 0), conversationId: 'A' },
+    { id: 'night', content: 'y', sendAt: atDay(1, 23, 0), conversationId: 'A' },
+  ];
+  const render = await panelWith(tasks, { A: { id: 'A', displayTitle: 'A' } });
+  const toneFor = (id) => {
+    findAll(findAll(render(), (n) => n.props?.['data-task'] === id)[0], (n) => n.type === 'button' && n.props['aria-label'] === 'Send now')[0].props.onClick({});
+    const dialog = confirmOf(render());
+    const badge = findAll(dialog, (n) => n.type === 'span' && n.props?.['aria-hidden'] === 'true')[0];
+    const go = findAll(dialog, (n) => n.type === 'button' && /^Send now$/.test(texts(n).join('')))[0];
+    findAll(dialog, (n) => n.type === 'button' && /Keep it scheduled/.test(texts(n).join('')))[0].props.onClick({});
+    return { badge: badge.props.style.background, button: go.props.style.background };
+  };
+  const day = toneFor('day');
+  const night = toneFor('night');
+  assert.equal(day.button, '#ef4444');
+  assert.equal(night.button, '#ef4444');
+  assert.match(day.badge, /251,191,36/, 'amber by day');
+  assert.match(night.badge, /59,130,246/, 'blue by night');
 });

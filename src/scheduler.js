@@ -119,6 +119,20 @@ export async function createScheduler({ dataDir, clock = { now: () => Date.now()
       }
       return false;
     },
+    /**
+     * Move a pending task to a new time (the id and content stay). A time at
+     * or before now delivers it on the next tick — that is "Send now".
+     * Returns the updated task, or null when no such task is pending.
+     */
+    async reschedule(id, sendAt) {
+      if (typeof sendAt !== 'number' || !Number.isFinite(sendAt)) throw new Error('sendAt must be a timestamp (epoch ms)');
+      const item = queue.find((it) => it.id === id);
+      if (!item) return null;
+      item.sendAt = sendAt;
+      await persist();
+      arm();
+      return { ...item };
+    },
     /** Pending tasks sorted by sendAt ascending (display order). */
     list() {
       return [...queue].sort((a, b) => a.sendAt - b.sendAt).map((it) => ({ ...it }));
