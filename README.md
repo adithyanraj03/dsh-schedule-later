@@ -99,13 +99,6 @@ Guard rails, because an assistant that can wake itself up could otherwise do so 
 
 The plugin ships a `schedule-later` skill (`SKILL.md`), registered with dsh's skills service, whose catalog entry the model sees every turn. It teaches when to come back unprompted — a build, deploy or job still running, a page or status that will change, something you said you would do later — how to write the message so its future self can act on it cold, and to tell you what it scheduled and when. Edit `SKILL.md` to change that behaviour; it is re-read on every catalog refresh.
 
-## How it works
-
-- **Host side** (`src/index.js`): a scheduler keeps the persistent queue. When a message falls due it is injected into the target chat's agent via `runMaintenance + followup`, with `source.kind: "user"` — the same path the official Send button uses. That is why it renders as a **normal user bubble** and why **no browser needs to be open**.
-- **Client side** (`lib/client.js`, built from `src/client-*.js`): the ⏱️ button and the list mount into the `conversation.input.right` and `conversation.input.dock` slots; the sidebar panel mounts into `sidebar.footer.action`. Jumping to a chat uses `sessions.open(sessionId)`. The client polls the host through a read-only state route, `GET /plugin-data/dsh-schedule-later/state`.
-- **Catch-up after restart or power loss.** Messages are saved to disk (`~/.dsh/dsh-schedule-later/tasks.json`). After dsh restarts the queue is restored, and anything that fell due while it was down is delivered to its original chat. If a chat is not live yet, the message waits and is sent as soon as it is.
-- **Honest boundary:** while the dsh host process is stopped, nothing is sent. Messages that fell due in the meantime are delivered when it restarts.
-
 ## Requirements
 
 - A `web` dsh profile — `engines: dsh >= 0.1.0`
