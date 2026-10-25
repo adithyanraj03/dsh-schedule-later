@@ -286,11 +286,12 @@ test('dock chip: one line — soonest message truncated, +N badge, countdown, �
   assert.equal(x.props.children[0], '✕');
   assert.equal(findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-dock-list').length, 0, 'no in-chat list anymore');
   // the strip hugs the composer: rounded TOP corners only, no bottom border,
-  // and it is NARROWER than the message box (12px inset each side)
+  // and it sizes itself with dsh's composer CSS variables — the same formula
+  // dsh-genui's panel uses — so it tracks the message box at every width
   assert.equal(chip.props.style.borderRadius, '10px 10px 0 0');
   assert.equal(chip.props.style.borderBottom, 'none');
-  assert.equal(chip.props.style.width, 'calc(100% - 24px)');
-  assert.equal(chip.props.style.maxWidth, 'calc(48rem - 24px)');
+  assert.equal(chip.props.style.width, 'calc(100% - var(--dsh-composer-side-clearance, 16px) * 2 - var(--dsh-composer-dock-inset, 8px) * 4)');
+  assert.equal(chip.props.style.maxWidth, 'calc(var(--dsh-composer-card-max-width, 780px) - var(--dsh-composer-dock-inset, 8px) * 4)');
 
   // single pending: no +N badge
   await core.cancelTask('t2'); await core.cancelTask('t3'); await core.cancelTask('t4');

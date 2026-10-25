@@ -1186,86 +1186,13 @@ function createClientPluginBody(React) {
       return () => clearInterval(t);
     }, []);
 
-    // Invisible side buffers: the dock column is wider than the message box
-    // at most window widths — the box carries its own margins — so a fixed
-    // inset cannot track it (it went flush, then wider than the box). The
-    // box is found as the dock's SIBLING in the column: walking up from the
-    // dock root, the first ancestor level that has another child holding a
-    // visible textarea is the column, and that child is the composer box.
-    // The chip then matches the box's edges plus a 12px buffer, clamped so
-    // it can never overhang the column. Retried until the composer exists,
-    // and re-run whenever the chip appears (before it, this component
-    // returned null and no ref was attached, so measuring at mount alone
-    // would leave a later-appearing chip on the unmeasured fallback).
+    // Invisible side buffers, done the way dsh-genui's panel does it: dsh
+    // publishes the composer geometry as CSS custom properties
+    // (--dsh-composer-side-clearance, --dsh-composer-dock-inset,
+    // --dsh-composer-card-max-width), so the chip sizes itself in pure CSS —
+    // always dynamic to the message box, never to the window sides, with no
+    // measuring, no retries and no race conditions.
     const tasks = core.visibleTasks();
-    const rootRef = React.useRef(null);
-    const [insets, setInsets] = React.useState(null); // {left,right} | null
-    React.useEffect(() => {
-      if (typeof document === "undefined" || !document.querySelector) return undefined;
-      let tries = 0;
-      let retry = null;
-      const measure = () => {
-        const root = rootRef.current;
-        if (!root || !root.getBoundingClientRect) return;
-        let el = root;
-        let box = null;
-        let fallback = null; // a preceding textarea-holder, used only if nothing follows us
-        for (let i = 0; el && el.parentElement && i < 8; i += 1) {
-          const parent = el.parentElement;
-          const kids = parent.children || [];
-          let best = null;
-          for (let j = 0; j < kids.length; j += 1) {
-            const sib = kids[j];
-            if (sib === el || sib === root || (sib.contains && sib.contains(root))) continue;
-            if (!sib.querySelector || !sib.querySelector("textarea") || !sib.getBoundingClientRect) continue;
-            const r = sib.getBoundingClientRect();
-            if (r.height <= 0) continue;
-            // The composer sits BELOW the dock entries in the column, so a
-            // following sibling wins over an earlier one (another dock bar
-            // that happens to hold a textarea must not be mistaken for it).
-            const after = el.compareDocumentPosition ? (el.compareDocumentPosition(sib) & 4) !== 0 : false;
-            const area = r.width * r.height;
-            if (!best || (after && !best.after) || (after === best.after && area > best.area)) {
-              best = { el: sib, area, after };
-            }
-          }
-          // A FOLLOWING sibling (the composer sits below the dock entries)
-          // wins at any level; a preceding one (another dock bar that holds
-          // a textarea, e.g. a panel's JSON editor) is only a last resort,
-          // never a reason to stop climbing.
-          if (best && best.after) { box = best.el; break; }
-          if (best && !fallback) fallback = best.el;
-          el = parent;
-        }
-        if (!box) box = fallback;
-        if (!box) {
-          if (tries++ < 20) retry = setTimeout(measure, 500);
-          return;
-        }
-        const rr = root.getBoundingClientRect();
-        const br = box.getBoundingClientRect();
-        if (!rr.width || !br.width) return;
-        const next = {
-          left: Math.max(8, Math.round(br.left - rr.left) + 12),
-          right: Math.max(8, Math.round(rr.right - br.right) + 12),
-        };
-        setInsets((prev) => (prev && prev.left === next.left && prev.right === next.right ? prev : next));
-      };
-      measure();
-      const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame(measure) : null;
-      if (typeof window !== "undefined" && window.addEventListener) window.addEventListener("resize", measure);
-      let ro = null;
-      if (typeof ResizeObserver === "function" && rootRef.current && rootRef.current.parentElement) {
-        ro = new ResizeObserver(measure);
-        ro.observe(rootRef.current.parentElement);
-      }
-      return () => {
-        if (raf !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
-        if (retry !== null) clearTimeout(retry);
-        if (typeof window !== "undefined" && window.removeEventListener) window.removeEventListener("resize", measure);
-        if (ro) ro.disconnect();
-      };
-    }, [props.sessionId, tasks.length]);
 
     const err = core.lastError();
     const isDark = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -1276,14 +1203,14 @@ function createClientPluginBody(React) {
     const extra = tasks.length - 1;
     const sky = t ? skyRow(t.sendAt, now) : null;
 
-    // One line fused to the composer's top edge: the strip matches the
-    // message box's edges plus invisible 12px buffers on each side (measured
-    // from the DOM, fixed inset as the fallback), rounds only its TOP
-    // corners and has no gap below, so it reads as a tab on the bar.
+    // One line fused to the composer's top edge: the strip sizes itself with
+    // dsh's own composer CSS variables — the same formula dsh-genui's panel
+    // uses — so it tracks the message box at every window width, rounds only
+    // its TOP corners and has no gap below, reading as a tab on the bar.
     // Only the message text truncates — the day, time pill, countdown and ✕
     // never shrink. Clicking opens the sidebar panel straight on this
     // message; the ✕ cancels this one, after asking.
-    return h("div", { ref: rootRef, "data-plugin": "dsh-schedule-later-dock", style: { width: "100%", boxSizing: "border-box" } }, [
+    return h("div", { "data-plugin": "dsh-schedule-later-dock", style: { width: "100%", boxSizing: "border-box" } }, [
       err
         ? h("div", {
             key: "err",
@@ -1298,9 +1225,9 @@ function createClientPluginBody(React) {
             title: "Open the Scheduled panel with this message",
             style: {
               display: "flex", alignItems: "center", gap: 8,
-              width: insets ? "calc(100% - " + (insets.left + insets.right) + "px)" : "calc(100% - 24px)",
-              maxWidth: insets ? "none" : "calc(48rem - 24px)",
-              margin: insets ? "0 " + insets.right + "px 0 " + insets.left + "px" : "0 auto",
+              width: "calc(100% - var(--dsh-composer-side-clearance, 16px) * 2 - var(--dsh-composer-dock-inset, 8px) * 4)",
+              maxWidth: "calc(var(--dsh-composer-card-max-width, 780px) - var(--dsh-composer-dock-inset, 8px) * 4)",
+              margin: "0 auto",
               boxSizing: "border-box", padding: mobile ? "10px 12px" : "4px 10px",
               minHeight: mobile ? TOUCH_MIN : 28, fontSize: 12, lineHeight: "18px",
               borderRadius: "10px 10px 0 0", cursor: "pointer", overflow: "hidden",
