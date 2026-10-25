@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Schedule">
+  <!-- Plugin icon: the scheduler's own night sky. Navy gradient badge with
+       stars and a glowing crescent moon, the white analog dial from the
+       picker, a blue hour hand and an amber minute hand (the sun's colour).
+       XML comments must never contain a double hyphen. -->
+  <defs>
+    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="512"><stop offset="0" stop-color="#2b3272"/><stop offset=".55" stop-color="#1a2050"/><stop offset="1" stop-color="#10142e"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#sky)"/>
+  <!-- stars -->
+  <circle cx="120" cy="96" r="3.5" fill="#fff" opacity=".9"/>
+  <circle cx="196" cy="64" r="2.5" fill="#fff" opacity=".7"/>
+  <circle cx="330" cy="88" r="3" fill="#fff" opacity=".8"/>
+  <circle cx="96" cy="182" r="2.5" fill="#fff" opacity=".55"/>
+  <!-- moon with a soft glow -->
+  <circle cx="392" cy="110" r="44" fill="#eef1ff" opacity=".12"/>
+  <circle cx="392" cy="110" r="30" fill="#eef1ff"/>
+  <circle cx="378" cy="100" r="26" fill="url(#sky)"/>
+  <!-- dial -->
+  <circle cx="256" cy="308" r="148" fill="#f7f9fc" stroke="#cfd8e8" stroke-width="3"/>
+  <!-- ticks at the quarters -->
+  <rect x="248" y="180" width="16" height="28" rx="8" fill="#2b3442"/>
+  <rect x="248" y="408" width="16" height="28" rx="8" fill="#2b3442"/>
+  <rect x="128" y="300" width="28" height="16" rx="8" fill="#2b3442"/>
+  <rect x="356" y="300" width="28" height="16" rx="8" fill="#2b3442"/>
+  <!-- hour hand, blue, at ten -->
+  <path d="M256 308 L188 269" stroke="#3b82f6" stroke-width="24" stroke-linecap="round" fill="none"/>
+  <!-- minute hand, amber, at two -->
+  <path d="M256 308 L353 252" stroke="#f59e0b" stroke-width="18" stroke-linecap="round" fill="none"/>
+  <!-- hub -->
+  <circle cx="256" cy="308" r="18" fill="#2b3442"/>
+</svg>
