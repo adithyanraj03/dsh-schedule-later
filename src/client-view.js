@@ -1196,11 +1196,12 @@ function createClientPluginBody(React) {
     const extra = tasks.length - 1;
     const sky = t ? skyRow(t.sendAt, now) : null;
 
-    // One line fused to the composer's top edge: the strip carries the same
-    // width as the message box, rounds only its TOP corners and has no gap
-    // below, so it reads as part of the bar rather than a card in the chat
-    // flow. Clicking it opens the sidebar panel straight on this message;
-    // the ✕ cancels this one, after asking.
+    // One line fused to the composer's top edge: the strip sits slightly
+    // NARROWER than the message box (12px inset each side), rounds only its
+    // TOP corners and has no gap below, so it reads as a tab on the bar.
+    // Only the message text truncates — the day, time pill, countdown and ✕
+    // never shrink. Clicking opens the sidebar panel straight on this
+    // message; the ✕ cancels this one, after asking.
     return h("div", { "data-plugin": "dsh-schedule-later-dock", style: { width: "100%", boxSizing: "border-box" } }, [
       err
         ? h("div", {
@@ -1215,14 +1216,15 @@ function createClientPluginBody(React) {
             onClick: () => requestPanelOpen(t.id),
             title: "Open the Scheduled panel with this message",
             style: {
-              display: "flex", alignItems: "center", gap: 8, width: "100%", maxWidth: "48rem",
+              display: "flex", alignItems: "center", gap: 8,
+              width: "calc(100% - 24px)", maxWidth: "calc(48rem - 24px)",
               margin: "0 auto", boxSizing: "border-box", padding: mobile ? "10px 12px" : "4px 10px",
               minHeight: mobile ? TOUCH_MIN : 28, fontSize: 12, lineHeight: "18px",
               borderRadius: "10px 10px 0 0", cursor: "pointer", overflow: "hidden",
               ...sky.style, borderBottom: "none",
             },
           }, [
-            StopwatchIcon(13, true),
+            h("span", { key: "i", style: { flex: "none", display: "inline-flex" } }, StopwatchIcon(13, true)),
             h("span", {
               key: "msg", "data-chip-content": "",
               style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" },
@@ -1237,7 +1239,7 @@ function createClientPluginBody(React) {
             h("span", {
               key: "cd", "data-chip-countdown": "",
               style: { color: "#3b82f6", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, flex: "none" },
-            }, [HourglassIcon(11), h("span", { key: "t" }, sendsIn(t.sendAt, now))]),
+            }, [HourglassIcon(11), h("span", { key: "t" }, mobile ? formatCountdown(t.sendAt, now) : sendsIn(t.sendAt, now))]),
             h("button", {
               key: "x", type: "button", "aria-label": "Cancel this scheduled message", title: "Cancel this scheduled message",
               onClick: (e) => {

@@ -285,9 +285,12 @@ test('dock chip: one line — soonest message truncated, +N badge, countdown, �
   const x = findAll(chip, (n) => n.type === 'button')[0];
   assert.equal(x.props.children[0], '✕');
   assert.equal(findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-dock-list').length, 0, 'no in-chat list anymore');
-  // the strip hugs the composer: rounded TOP corners only, no bottom border
+  // the strip hugs the composer: rounded TOP corners only, no bottom border,
+  // and it is NARROWER than the message box (12px inset each side)
   assert.equal(chip.props.style.borderRadius, '10px 10px 0 0');
   assert.equal(chip.props.style.borderBottom, 'none');
+  assert.equal(chip.props.style.width, 'calc(100% - 24px)');
+  assert.equal(chip.props.style.maxWidth, 'calc(48rem - 24px)');
 
   // single pending: no +N badge
   await core.cancelTask('t2'); await core.cancelTask('t3'); await core.cancelTask('t4');
@@ -349,6 +352,8 @@ test('bundle FIX5: mobile (≤480px) — chip shows as a touch-sized strip; popo
   assert.ok(Number(chip.props.style.minHeight) >= 40, 'mobile: chip strip is touch-sized');
   const x = findAll(chip, (n) => n.type === 'button')[0];
   assert.ok(Number(x.props.style.width) >= 40 && Number(x.props.style.height) >= 40, 'mobile: ✕ is a 40px touch target');
+  const cd = findAll(chip, (n) => n.props?.['data-chip-countdown'] !== undefined)[0];
+  assert.doesNotMatch(texts(cd).join(''), /Sends in/, 'mobile: bare duration, no "Sends in" prefix');
 
   // popover: near-full-width + ≥40px touch targets
   const bprops = { ...captured.props.right, useInput: () => 'x', inputActions: {} };
