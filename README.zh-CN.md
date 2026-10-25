@@ -74,7 +74,7 @@ cp ~/.dsh/dsh-send-later/tasks.json ~/.dsh/dsh-schedule-later/tasks.json
 
 ![手机与窄窗口使用的折叠布局](assets/scheduler-compact.png)
 
-可以在会话内列表或侧边栏面板里取消任何待发消息——两处都会先向你确认。
+可以在胶囊条或侧边栏面板里取消任何待发消息——两处都会先向你确认。
 
 ### 侧边栏面板
 
@@ -82,7 +82,7 @@ cp ~/.dsh/dsh-send-later/tasks.json ~/.dsh/dsh-schedule-later/tasks.json
 
 ![跨会话的待发消息，按发送时间着色](assets/scheduled-panel.png)
 
-当前会话的待发消息也会出现在会话内，位于 dsh 的 To-dos 上方（To-dos 紧挨输入框）。多于一条时，只显示最早的一条加一个 “N more scheduled ⌄” 开关；展开的列表在固定高度内滚动，“Collapse ⌃” 开关永远不会滚出视野。任何列表都可以手动折叠。
+当前会话的待发消息还会以**一行式胶囊条**贴在输入框顶部——显示最早的一条（超长截断）、发送时间、实时倒计时和一个需确认的 ✕ 取消按钮。多于一条时，“+N”徽标统计其余消息。点击胶囊条，侧边栏面板会直接打开并定位到这条消息，全文在那里。
 
 ### 模型工具
 

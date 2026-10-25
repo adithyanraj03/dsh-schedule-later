@@ -108,6 +108,27 @@ function expandFn(node, depth = 0) {
   return { ...node, props: { ...node.props, children: arr.map((k) => (k && typeof k === 'object' ? expandFn(k, depth + 1) : k)) } };
 }
 
+/** Render two components from ONE bundle instance without letting them share
+ *  hook slots: each key gets its own persistent useState/useRef/useEffect
+ *  arrays, and the hook counters rewind before every render, as in real React. */
+function renderNs(react, key, comp, props) {
+  react.__ns = react.__ns || {};
+  const saved = { h: react.__hooks, hi: react.__hi, e: react.__effects, ei: react.__ei, p: react.__pending };
+  const ns = react.__ns[key] || (react.__ns[key] = { hooks: [], effects: [], pending: [] });
+  react.__hooks = ns.hooks; react.__hi = 0; react.__effects = ns.effects; react.__ei = 0; react.__pending = ns.pending;
+  try {
+    return expandFn(comp(props));
+  } finally {
+    Object.assign(react, { __hooks: saved.h, __hi: saved.hi, __effects: saved.e, __ei: saved.ei, __pending: saved.p });
+  }
+}
+function runNsEffects(react, key) {
+  const ns = (react.__ns || {})[key];
+  if (!ns) return;
+  const fns = ns.pending; ns.pending = [];
+  for (const fn of fns) fn();
+}
+
 test('bundle: slots wired (input.right + input.dock ONLY — modelDirectories gone), core hits the state route', async () => {
   const mod = loadBundle(dumbReact);
   assert.deepEqual([...mod.inject].sort(), ['sessions', 'slots'], 'FIX3: modelDirectories gone; 0.3.0 adds sessions for sidebar jumps');
@@ -233,7 +254,7 @@ test('bundle FIX1: dock re-fetches IMMEDIATELY when sessionId prop changes', asy
   assert.deepEqual(core.visibleTasks().map((t) => t.id), ['b'], 'the NEW session list is shown instantly');
 });
 
-test('bundle FIX2: dock collapse policy — >1 shows ONLY the soonest entry + "N more scheduled ⌄", expand/collapse works', async () => {
+test('dock chip: one line — soonest message truncated, +N badge, countdown, ✕', async () => {
   const react = makeInteractiveReact();
   const mod = loadBundle(react);
   const captured = applySlots(mod);
@@ -248,87 +269,72 @@ test('bundle FIX2: dock collapse policy — >1 shows ONLY the soonest entry + "N
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks }) });
   await core.refresh();
 
-  const render = () => {
-    react.reset();
-    return expandFn(captured.dock.__comp({ ...captured.props.dock }));
-  };
-  let tree = render();
-  let mono = findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace');
-  assert.equal(mono.length, 1, 'only ONE entry visible by default (the soonest)');
-  assert.equal((Array.isArray(mono[0].props.children) ? mono[0].props.children[0] : mono[0].props.children), 'a', 'soonest (sendAt-min) entry shown');
-  const all = JSON.stringify(texts(tree));
-  assert.match(all, /3 more scheduled/, 'summary row for the remaining 3');
+  const render = () => { react.reset(); return expandFn(captured.dock.__comp({ ...captured.props.dock })); };
+  const tree = render();
+  const chips = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-chip');
+  assert.equal(chips.length, 1, 'exactly one chip');
+  const chip = chips[0];
+  assert.equal(chip.props['data-task'], 't1', 'the chip carries the SOONEST message');
+  const msg = findAll(chip, (n) => n.props?.['data-chip-content'] !== undefined)[0];
+  assert.equal(msg.props.children[0], 'a');
+  assert.equal(msg.props.style.whiteSpace, 'nowrap', 'one line');
+  assert.equal(msg.props.style.textOverflow, 'ellipsis', 'truncated');
+  assert.equal(findAll(chip, (n) => n.props?.['data-chip-more'] !== undefined)[0].props['data-chip-more'], '3', '+N badge counts the rest');
+  assert.equal(findAll(chip, (n) => n.props?.['data-chip-countdown'] !== undefined).length, 1, 'live countdown on the chip');
+  const x = findAll(chip, (n) => n.type === 'button')[0];
+  assert.equal(x.props.children[0], '✕');
+  assert.equal(findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-dock-list').length, 0, 'no in-chat list anymore');
+  // the strip hugs the composer: rounded TOP corners only, no bottom border
+  assert.equal(chip.props.style.borderRadius, '10px 10px 0 0');
+  assert.equal(chip.props.style.borderBottom, 'none');
 
-  // expand → all 4
-  let toggle = findAll(tree, (n) => n.type === 'button' && /scheduled ⌄/.test(texts(n).join('')))[0];
-  toggle.props.onClick();
-  tree = render();
-  mono = findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace');
-  assert.equal(mono.length, 4, 'expanded shows the full list');
-  const order = mono.map((n) => (Array.isArray(n.props.children) ? n.props.children[0] : n.props.children));
-  assert.deepEqual(order, ['a', 'b', 'c', 'd'], 'entries in sendAt ascending order');
-
-  // collapse again → back to 1 + summary
-  toggle = findAll(tree, (n) => n.type === 'button' && /Collapse/.test(texts(n).join('')))[0];
-  assert.ok(toggle, 'collapse toggle rendered while expanded');
-  toggle.props.onClick();
-  tree = render();
-  mono = findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace');
-  assert.equal(mono.length, 1, 'collapsed again to the single soonest entry');
-
-  // single entry: user had collapsed — summary shows it; expand reveals it;
-  // collapse again hides it entirely (manual collapse works for ANY count)
-  await core.cancelTask('t1'); await core.cancelTask('t2'); await core.cancelTask('t3');
-  tree = render();
-  assert.equal(findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace').length, 0, 'single entry stays collapsed under the prior override');
-  assert.match(JSON.stringify(texts(tree)), /1 scheduled/, 'summary shows the hidden single task');
-  toggle = findAll(tree, (n) => n.type === 'button' && /scheduled ⌄/.test(texts(n).join('')))[0];
-  toggle.props.onClick();
-  tree = render();
-  assert.equal(findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace').length, 1, 'single entry visible once expanded');
-  toggle = findAll(tree, (n) => n.type === 'button' && /Collapse/.test(texts(n).join('')))[0];
-  toggle.props.onClick();
-  tree = render();
-  assert.equal(findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace').length, 0, 'single entry collapsible to nothing');
-  assert.match(JSON.stringify(texts(tree)), /1 scheduled/);
+  // single pending: no +N badge
+  await core.cancelTask('t2'); await core.cancelTask('t3'); await core.cancelTask('t4');
+  const one = render();
+  assert.equal(findAll(one, (n) => n.props?.['data-chip-more'] !== undefined).length, 0, 'no +N badge for a single message');
 });
 
-test('dock: sits above dsh\'s To-dos (order 0), goal (10) and queue (20), so the To-dos stay next to the message box', () => {
+test('dock: sits last (order 30) — flush against the composer top, part of the message bar', () => {
   const captured = applySlots(loadBundle(dumbReact));
-  assert.equal(captured.dock.order, -10);
+  assert.equal(captured.dock.order, 30);
 });
 
-test('dock: an expanded list scrolls inside a capped box, with the Collapse toggle outside it', async () => {
+test('dock chip: clicking it opens the sidebar panel straight on that message', async () => {
   const react = makeInteractiveReact();
   const mod = loadBundle(react);
   const captured = applySlots(mod);
-  const core = captured.props.dock.core;
   const base = Date.now() + 60_000;
-  const tasks = Array.from({ length: 8 }, (_, i) => ({ id: 't' + i, content: 'message ' + i, sendAt: base + i * 60_000, conversationId: 'sess-1' }));
+  const tasks = [
+    { id: 'c1', content: 'open the PR', sendAt: base, conversationId: 'sess-1' },
+    { id: 'c2', content: 'later thing', sendAt: base + 60_000, conversationId: 'sess-1' },
+  ];
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks }) });
-  await core.refresh();
-  const render = () => { react.reset(); return expandFn(captured.dock.__comp({ ...captured.props.dock })); };
-
-  let tree = render();
-  findAll(tree, (n) => n.type === 'button' && /7 more scheduled/.test(texts(n).join('')))[0].props.onClick();
-  tree = render();
-  const list = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-dock-list')[0];
-  assert.ok(list, 'the entries are wrapped in a list box');
-  assert.equal(list.props.style.overflowY, 'auto');
-  assert.equal(list.props.style.maxHeight, 'min(40vh, 320px)');
-  assert.equal(findAll(list, (n) => n.props?.style?.fontFamily === 'monospace').length, 8, 'all 8 are in the scrolling box');
-  const collapse = findAll(tree, (n) => n.type === 'button' && /Collapse/.test(texts(n).join('')))[0];
-  assert.ok(collapse, 'Collapse is rendered');
-  assert.equal(findAll(list, (n) => n === collapse).length, 0, 'and is not inside the scrolling box, so it cannot scroll away');
+  await captured.props.dock.core.refresh();
+  // Mount the panel so it subscribes to the chip bus, and confirm it is closed.
+  renderNs(react, 'side', captured.sidebar.__comp, { wide: true });
+  runNsEffects(react, 'side');
+  await new Promise((r) => setTimeout(r, 5)); // mount poll
+  let side = renderNs(react, 'side', captured.sidebar.__comp, { wide: true });
+  assert.equal(findAll(side, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar-panel').length, 0, 'panel closed before the click');
+  // Click the chip.
+  const dock = renderNs(react, 'dock', captured.dock.__comp, { ...captured.props.dock });
+  findAll(dock, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-chip')[0].props.onClick();
+  await new Promise((r) => setTimeout(r, 10)); // the open request refreshes first
+  side = renderNs(react, 'side', captured.sidebar.__comp, { wide: true });
+  assert.ok(findAll(side, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-sidebar-panel')[0], 'panel opened from the chip');
+  const detail = findAll(side, (n) => n.props?.['data-detail-content'] !== undefined)[0];
+  assert.ok(detail, 'details card opened straight to the clicked message');
+  assert.equal(detail.props.children[0], 'open the PR');
+  assert.match(detail.props.style.background, /linear-gradient/, 'the details message block carries the sky tint');
 });
 
-test('bundle FIX5: mobile (≤480px) — dock fully collapsed by default; popover near-full-width; touch targets ≥40px', async () => {
+test('bundle FIX5: mobile (≤480px) — chip shows as a touch-sized strip; popover near-full-width; touch targets ≥40px', async () => {
   const react = makeInteractiveReact();
   const mod = loadBundle(react);
   global.window.matchMedia = (q) => ({ matches: String(q).includes('480') }); // AFTER loadBundle (it resets window)
   const captured = applySlots(mod);
 
-  // dock: 1 task on mobile → fully collapsed (summary only)
+  // dock: the chip shows on mobile too, as a touch-sized strip
   const core = captured.props.dock.core;
   globalThis.fetch = async () => ({
     ok: true,
@@ -337,8 +343,11 @@ test('bundle FIX5: mobile (≤480px) — dock fully collapsed by default; popove
   await core.refresh();
   react.reset();
   let tree = expandFn(captured.dock.__comp({ ...captured.props.dock }));
-  assert.equal(findAll(tree, (n) => n.props?.style?.fontFamily === 'monospace').length, 0, 'mobile: no entries by default');
-  assert.match(JSON.stringify(texts(tree)), /1 scheduled/, 'mobile: collapsed summary');
+  const chip = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-chip')[0];
+  assert.ok(chip, 'mobile: the chip shows');
+  assert.ok(Number(chip.props.style.minHeight) >= 40, 'mobile: chip strip is touch-sized');
+  const x = findAll(chip, (n) => n.type === 'button')[0];
+  assert.ok(Number(x.props.style.width) >= 40 && Number(x.props.style.height) >= 40, 'mobile: ✕ is a 40px touch target');
 
   // popover: near-full-width + ≥40px touch targets
   const bprops = { ...captured.props.right, useInput: () => 'x', inputActions: {} };
@@ -1157,7 +1166,7 @@ test('confirm: Esc closes the dialog before the card and the panel', async () =>
   delete global.document;
 });
 
-test('confirm: the in-chat list\'s Cancel asks too', async () => {
+test('confirm: the chip\'s ✕ asks before cancelling', async () => {
   const react = makeInteractiveReact();
   const mod = loadBundle(react);
   const captured = applySlots(mod);
@@ -1170,7 +1179,7 @@ test('confirm: the in-chat list\'s Cancel asks too', async () => {
   };
   await core.refresh();
   const render = () => { react.reset(); return expandFn(captured.dock.__comp({ ...captured.props.dock })); };
-  findAll(render(), (n) => n.type === 'button' && /^Cancel$/.test(texts(n).join('')))[0].props.onClick();
+  findAll(render(), (n) => n.props?.['aria-label'] === 'Cancel this scheduled message')[0].props.onClick({ stopPropagation: () => {} });
   assert.equal(del.length, 0, 'asks first');
   const dialog = confirmOf(render());
   assert.match(JSON.stringify(texts(dialog)), /Cancel this scheduled message\?/);

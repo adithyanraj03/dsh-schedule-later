@@ -74,7 +74,7 @@ On phones and narrow windows (≤480px) the picker folds into a near-full-width 
 
 ![The folded layout used on phones and narrow windows](assets/scheduler-compact.png)
 
-Cancel any pending message from the in-chat list or the sidebar panel — both ask first.
+Cancel any pending message from the chip or the sidebar panel — both ask first.
 
 ### The sidebar panel
 
@@ -82,7 +82,7 @@ An entry at the bottom of the sidebar, with a badge counting every pending messa
 
 ![Pending messages across chats, tinted by the time they send](assets/scheduled-panel.png)
 
-Pending messages for the current chat also appear in-chat, above dsh's To-dos, which sit next to the message box. With more than one, only the soonest is shown plus an “N more scheduled ⌄” toggle; an expanded list scrolls within a fixed height so its “Collapse ⌃” toggle never scrolls away. Any list can be collapsed by hand.
+Pending messages for the current chat also appear as a **one-line chip fused to the top of the message box** — the soonest message truncated, its time, a live countdown and a ✕ that cancels it after asking. With more than one pending, a “+N” badge counts the rest. Click the chip and the sidebar panel opens straight on that message, where the full text lives.
 
 ### The model tools
 

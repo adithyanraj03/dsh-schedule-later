@@ -2,7 +2,7 @@
 // This file is CONCATENATED into lib/client.js by scripts/build-client.mjs
 // together with src/client-core.js — it must stay import/export-free plain JS.
 // Inside the bundle it references: React (platform module) and the client-core
-// helpers (sortTasks/collapseState/formatLocalTime/formatCountdown/…).
+// helpers (sortTasks/formatLocalTime/formatCountdown/…).
 
 /* ==== view ==== */
 function createClientPluginBody(React) {
@@ -1139,15 +1139,20 @@ function createClientPluginBody(React) {
     ]);
   }
 
-  /* --- pending-task dock (conversation.input.dock) ---------------------- */
+  /* --- pending-task chip (conversation.input.dock) ---------------------- */
+  // The chip and the sidebar panel are separate components in separate slots;
+  // the chip asks the panel to open through this tiny in-bundle bus. Listeners
+  // are mounted panel instances; with none mounted the click is a no-op.
+  const panelOpenListeners = new Set();
+  function requestPanelOpen(taskId) {
+    for (const fn of [...panelOpenListeners]) fn(taskId);
+  }
+
   function ScheduledDock(props) {
     const core = props.core;
     const [, setTick] = React.useState(0);
-    // FIX 2: tri-state user override — null = default policy, 'expanded',
-    // 'collapsed' (manual collapse-all works for ANY count).
-    const [user, setUser] = React.useState(null);
     const mobile = isMobile();
-    // The pending "Cancel this message?" for the in-chat list.
+    // The pending "Cancel this message?" for the chip's ✕.
     const [ask, setAsk] = React.useState(null);
     React.useEffect(() => {
       if (!ask || typeof document === "undefined" || !document.addEventListener) return undefined;
@@ -1183,81 +1188,71 @@ function createClientPluginBody(React) {
 
     const tasks = core.visibleTasks();
     const err = core.lastError();
-    const st = collapseState(tasks, { user, mobile });
     const isDark = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     const now = Date.now();
     ensureStyles();
-    const visible = tasks.slice(0, st.visibleCount);
-    const showToggle = tasks.length > 0;
     if (!tasks.length && !err) return null;
+    const t = tasks[0]; // visibleTasks is soonest-first
+    const extra = tasks.length - 1;
+    const sky = t ? skyRow(t.sendAt, now) : null;
 
-    const rowStyle = {
-      display: "flex", flexDirection: "column", gap: 2, width: "100%", maxWidth: "48rem",
-      margin: "2px auto 0", fontSize: 12, lineHeight: "18px",
-      boxSizing: "border-box",
-    };
-    const entryStyle = {
-      display: "flex", flexDirection: "column", gap: 2, padding: "4px 8px", borderRadius: 8,
-      background: "rgba(59,130,246,.10)", border: "1px solid rgba(59,130,246,.22)",
-      maxWidth: "100%", width: "100%", boxSizing: "border-box", overflowWrap: "break-word",
-    };
-    const srcStyle = {
-      margin: 0, whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12,
-      wordBreak: "break-word", maxWidth: "100%",
-    };
-    const metaStyle = { display: "flex", alignItems: "center", gap: 8, color: "rgba(128,128,128,1)", flexWrap: "wrap", maxWidth: "100%" };
-    const cancelBtn = (t) => h("button", {
-      key: "x", type: "button",
-      onClick: () => {
-        setAsk({ ...askFor("cancel", t, ""), onConfirm: () => { core.cancelTask(t.id); } });
-        setTick((n) => n + 1);
-      },
-      style: {
-        cursor: "pointer", border: "1px solid rgba(128,128,128,.4)", borderRadius: 999, padding: "0 8px",
-        fontSize: 11, background: "transparent", color: "inherit", flexShrink: 0,
-        ...(mobile ? { minHeight: TOUCH_MIN } : {}),
-      },
-    }, "Cancel");
-
-    return h("div", { "data-plugin": "dsh-schedule-later-dock", style: rowStyle }, [
+    // One line fused to the composer's top edge: the strip carries the same
+    // width as the message box, rounds only its TOP corners and has no gap
+    // below, so it reads as part of the bar rather than a card in the chat
+    // flow. Clicking it opens the sidebar panel straight on this message;
+    // the ✕ cancels this one, after asking.
+    return h("div", { "data-plugin": "dsh-schedule-later-dock", style: { width: "100%", boxSizing: "border-box" } }, [
       err
         ? h("div", {
             key: "err",
-            style: { padding: "3px 8px", borderRadius: 8, background: "rgba(220,38,38,.10)", color: "#dc2626", wordBreak: "break-word" },
+            style: { maxWidth: "48rem", margin: "0 auto", padding: "3px 8px", borderRadius: 8, background: "rgba(220,38,38,.10)", color: "#dc2626", wordBreak: "break-word", fontSize: 12 },
           }, "⚠ Could not refresh — showing the last list: " + err)
         : null,
-      showToggle && st.summary
-        ? h("button", {
-            key: "sum", type: "button",
-            onClick: () => { setUser(st.display === "expanded" ? "collapsed" : "expanded"); setTick((n) => n + 1); },
-            style: {
-              cursor: "pointer", alignSelf: "center", border: "1px solid rgba(59,130,246,.35)", borderRadius: 999,
-              padding: "1px 10px", fontSize: 11, fontWeight: 600, background: "rgba(59,130,246,.10)", color: "inherit",
-              ...(mobile ? { minHeight: TOUCH_MIN, boxSizing: "border-box" } : {}),
-            },
-          }, st.summary)
-        : null,
-      // The entries scroll inside a capped box, so an expanded list of long
-      // messages never grows past the toggle above it: "Collapse ⌃" stays on
-      // screen however many are pending.
-      visible.length
+      t
         ? h("div", {
-            key: "list", className: "dsl-dock-list", "data-plugin": "dsh-schedule-later-dock-list",
+            key: "chip", "data-plugin": "dsh-schedule-later-chip", "data-task": t.id,
+            className: sky.className,
+            onClick: () => requestPanelOpen(t.id),
+            title: "Open the Scheduled panel with this message",
             style: {
-              display: "flex", flexDirection: "column", gap: 2, width: "100%",
-              maxHeight: mobile ? "40vh" : "min(40vh, 320px)", overflowY: "auto", overscrollBehavior: "contain",
+              display: "flex", alignItems: "center", gap: 8, width: "100%", maxWidth: "48rem",
+              margin: "0 auto", boxSizing: "border-box", padding: mobile ? "10px 12px" : "4px 10px",
+              minHeight: mobile ? TOUCH_MIN : 28, fontSize: 12, lineHeight: "18px",
+              borderRadius: "10px 10px 0 0", cursor: "pointer", overflow: "hidden",
+              ...sky.style, borderBottom: "none",
             },
-          }, visible.map((t) => {
-            const sky = skyRow(t.sendAt, now);
-            return h("div", { key: t.id, className: sky.className, style: { ...entryStyle, ...sky.style, flex: "none" } }, [
-              h("div", { key: "src", style: srcStyle }, t.content),
-              h("div", { key: "meta", style: metaStyle }, [
-                whenPill(t.sendAt, now, isDark),
-                h("span", { key: "cd" }, sendsIn(t.sendAt, now)),
-                h("span", { key: "sp", style: { marginLeft: "auto" } }, cancelBtn(t)),
-              ]),
-            ]);
-          }))
+          }, [
+            StopwatchIcon(13, true),
+            h("span", {
+              key: "msg", "data-chip-content": "",
+              style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" },
+            }, t.content || "(empty)"),
+            extra > 0
+              ? h("span", {
+                  key: "more", "data-chip-more": String(extra), title: extra + " more scheduled in this chat",
+                  style: { flex: "none", fontSize: 11, fontWeight: 700, padding: "0 7px", borderRadius: 999, background: "rgba(59,130,246,.16)", border: "1px solid rgba(59,130,246,.35)" },
+                }, "+" + extra)
+              : null,
+            whenPill(t.sendAt, now, isDark),
+            h("span", {
+              key: "cd", "data-chip-countdown": "",
+              style: { color: "#3b82f6", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, flex: "none" },
+            }, [HourglassIcon(11), h("span", { key: "t" }, sendsIn(t.sendAt, now))]),
+            h("button", {
+              key: "x", type: "button", "aria-label": "Cancel this scheduled message", title: "Cancel this scheduled message",
+              onClick: (e) => {
+                e.stopPropagation();
+                setAsk({ ...askFor("cancel", t, ""), onConfirm: () => { core.cancelTask(t.id); } });
+                setTick((n) => n + 1);
+              },
+              style: {
+                cursor: "pointer", border: "1px solid rgba(128,128,128,.4)", borderRadius: 999,
+                width: mobile ? TOUCH_MIN : 20, height: mobile ? TOUCH_MIN : 20, padding: 0, flex: "none",
+                fontSize: 11, lineHeight: 1, background: "transparent", color: "inherit",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              },
+            }, "✕"),
+          ])
         : null,
       ask ? confirmDialog({ ...ask, isDark, onClose: () => { setAsk(null); setTick((n) => n + 1); } }) : null,
     ]);
@@ -1294,6 +1289,20 @@ function createClientPluginBody(React) {
     const detailRef = React.useRef(null);
     const setDetail = (id) => { detailRef.current = id; setDetailState(id); };
     const [copied, setCopied] = React.useState(false);
+
+    // The dock chip asks this panel to open, optionally straight to one
+    // message's details card. Refresh first so the card shows fresh data.
+    React.useEffect(() => {
+      const onOpen = (taskId) => {
+        setOpen(true);
+        core.refresh().catch(() => {}).then(() => {
+          if (taskId) setDetail(taskId);
+          setTick((n) => n + 1);
+        });
+      };
+      panelOpenListeners.add(onOpen);
+      return () => { panelOpenListeners.delete(onOpen); };
+    }, [core]);
 
     // dsh's sidebar footer is a flex ROW that does not wrap, and every entry
     // asks for 100% of it, so a second entry is pushed off its right edge.
@@ -1655,8 +1664,9 @@ function createClientPluginBody(React) {
             key: "msg", "data-detail-content": "", className: "dsl-dock-list",
             style: {
               margin: 0, padding: "8px 10px", borderRadius: 8, maxHeight: "32vh", overflow: "auto",
-              background: isDark ? "rgba(255,255,255,.04)" : "rgba(0,0,0,.035)", border: "1px solid " + hair,
               whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace", fontSize: 12, lineHeight: "18px",
+              // Same sky-tinted card look as the row it was opened from.
+              ...skyRow(t.sendAt, Date.now()).style,
             },
           }, t.content),
           byAssistant
@@ -1894,9 +1904,9 @@ function createClientPluginBody(React) {
           name: "conversation.input.dock",
           id: "dsh-schedule-later",
           // The dock stacks by order, top to bottom: dsh's To-dos are 0, the
-          // goal 10, the queue 20. Above all of them, so the To-dos stay
-          // next to the message box.
-          order: -10,
+          // goal 10, the queue 20. Last, so the chip sits flush against the
+          // composer's top edge and reads as part of the message bar.
+          order: 30,
           inject: (sessionId) => {
             currentSessionId = sessionId;
             core.setSession(sessionId);
