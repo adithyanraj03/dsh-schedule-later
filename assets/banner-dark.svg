@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="400" viewBox="0 0 1400 400" role="img" aria-label="Schedule later">
+  <!-- Dark banner: the scheduler's night sky. Navy gradient, stars, glowing
+       crescent moon, the white dial with blue and amber hands, wordmark
+       "schedule" in white and "later" in amber. Self contained background.
+       XML comments must never contain a double hyphen. -->
+  <defs>
+    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="400"><stop offset="0" stop-color="#1c2354"/><stop offset="1" stop-color="#0f1330"/></linearGradient>
+  </defs>
+  <rect width="1400" height="400" fill="url(#sky)"/>
+  <circle cx="60" cy="60" r="3" fill="#fff" opacity=".8"/>
+  <circle cx="120" cy="36" r="2.5" fill="#fff" opacity=".6"/>
+  <circle cx="300" cy="40" r="2.5" fill="#fff" opacity=".7"/>
+  <circle cx="36" cy="140" r="2" fill="#fff" opacity=".5"/>
+  <circle cx="352" cy="70" r="36" fill="#eef1ff" opacity=".12"/>
+  <circle cx="352" cy="70" r="24" fill="#eef1ff"/>
+  <circle cx="341" cy="62" r="21" fill="url(#sky)"/>
+  <circle cx="200" cy="200" r="130" fill="#f7f9fc" stroke="#cfd8e8" stroke-width="3"/>
+  <rect x="192" y="84" width="16" height="26" rx="8" fill="#2b3442"/>
+  <rect x="192" y="290" width="16" height="26" rx="8" fill="#2b3442"/>
+  <rect x="82" y="192" width="26" height="16" rx="8" fill="#2b3442"/>
+  <rect x="292" y="192" width="26" height="16" rx="8" fill="#2b3442"/>
+  <path d="M200 200 L141 166" stroke="#3b82f6" stroke-width="22" stroke-linecap="round" fill="none"/>
+  <path d="M200 200 L285 151" stroke="#f59e0b" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <circle cx="200" cy="200" r="16" fill="#2b3442"/>
+  <text x="420" y="250" font-family="Inter, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="130" font-weight="700" letter-spacing="-4"><tspan fill="#f4f4f6">schedule</tspan><tspan fill="#fbbf24" dx="20">later</tspan></text>
+</svg>

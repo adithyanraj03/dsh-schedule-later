@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="400" viewBox="0 0 1400 400" role="img" aria-label="Schedule later">
+  <!-- Light banner: the scheduler's day sky. Pale blue gradient, glowing
+       amber sun, the white dial with blue and amber hands, wordmark
+       "schedule" in ink and "later" in amber. Self contained background.
+       XML comments must never contain a double hyphen. -->
+  <defs>
+    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="400"><stop offset="0" stop-color="#eaf3fd"/><stop offset="1" stop-color="#d3e6f8"/></linearGradient>
+  </defs>
+  <rect width="1400" height="400" fill="url(#sky)"/>
+  <circle cx="352" cy="70" r="40" fill="#fbbf24" opacity=".25"/>
+  <circle cx="352" cy="70" r="26" fill="#fbbf24"/>
+  <circle cx="200" cy="200" r="130" fill="#ffffff" stroke="#cfd8e8" stroke-width="3"/>
+  <rect x="192" y="84" width="16" height="26" rx="8" fill="#2b3442"/>
+  <rect x="192" y="290" width="16" height="26" rx="8" fill="#2b3442"/>
+  <rect x="82" y="192" width="26" height="16" rx="8" fill="#2b3442"/>
+  <rect x="292" y="192" width="26" height="16" rx="8" fill="#2b3442"/>
+  <path d="M200 200 L141 166" stroke="#3b82f6" stroke-width="22" stroke-linecap="round" fill="none"/>
+  <path d="M200 200 L285 151" stroke="#f59e0b" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <circle cx="200" cy="200" r="16" fill="#2b3442"/>
+  <text x="420" y="250" font-family="Inter, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="130" font-weight="700" letter-spacing="-4"><tspan fill="#14171f">schedule</tspan><tspan fill="#d97706" dx="20">later</tspan></text>
+</svg>
