@@ -1188,25 +1188,49 @@ function createClientPluginBody(React) {
 
     // Invisible side buffers: the dock column is wider than the message box
     // at most window widths — the box carries its own margins — so a fixed
-    // inset cannot track it (it went flush, then wider than the box). Find
-    // the box from the DOM (the column's child that holds the composer
-    // textarea) and match its edges plus a 12px buffer on each side.
+    // inset cannot track it (it went flush, then wider than the box). The
+    // box is found as the dock's SIBLING in the column: walking up from the
+    // dock root, the first ancestor level that has another child holding a
+    // visible textarea is the column, and that child is the composer box.
+    // The chip then matches the box's edges plus a 12px buffer, clamped so
+    // it can never overhang the column. Retried until the composer exists.
     const rootRef = React.useRef(null);
     const [insets, setInsets] = React.useState(null); // {left,right} | null
     React.useEffect(() => {
       if (typeof document === "undefined" || !document.querySelector) return undefined;
+      let tries = 0;
+      let retry = null;
       const measure = () => {
         const root = rootRef.current;
-        if (!root || !root.parentElement || !root.getBoundingClientRect) return;
-        let col = root.parentElement;
-        let ta = null;
-        for (let i = 0; col && i < 8; i += 1, col = col.parentElement) {
-          ta = col.querySelector("textarea");
-          if (ta) break;
+        if (!root || !root.getBoundingClientRect) return;
+        let el = root;
+        let box = null;
+        for (let i = 0; el && el.parentElement && i < 8; i += 1) {
+          const parent = el.parentElement;
+          const kids = parent.children || [];
+          let best = null;
+          for (let j = 0; j < kids.length; j += 1) {
+            const sib = kids[j];
+            if (sib === el || sib === root || (sib.contains && sib.contains(root))) continue;
+            if (!sib.querySelector || !sib.querySelector("textarea") || !sib.getBoundingClientRect) continue;
+            const r = sib.getBoundingClientRect();
+            if (r.height <= 0) continue;
+            // The composer sits BELOW the dock entries in the column, so a
+            // following sibling wins over an earlier one (another dock bar
+            // that happens to hold a textarea must not be mistaken for it).
+            const after = el.compareDocumentPosition ? (el.compareDocumentPosition(sib) & 4) !== 0 : false;
+            const area = r.width * r.height;
+            if (!best || (after && !best.after) || (after === best.after && area > best.area)) {
+              best = { el: sib, area, after };
+            }
+          }
+          if (best) { box = best.el; break; }
+          el = parent;
         }
-        if (!ta || !col || !ta.getBoundingClientRect) return;
-        let box = ta;
-        while (box.parentElement && box.parentElement !== col) box = box.parentElement;
+        if (!box) {
+          if (tries++ < 20) retry = setTimeout(measure, 500);
+          return;
+        }
         const rr = root.getBoundingClientRect();
         const br = box.getBoundingClientRect();
         if (!rr.width || !br.width) return;
@@ -1226,6 +1250,7 @@ function createClientPluginBody(React) {
       }
       return () => {
         if (raf !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
+        if (retry !== null) clearTimeout(retry);
         if (typeof window !== "undefined" && window.removeEventListener) window.removeEventListener("resize", measure);
         if (ro) ro.disconnect();
       };
