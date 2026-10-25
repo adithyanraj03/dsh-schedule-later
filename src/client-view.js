@@ -1908,9 +1908,11 @@ function createClientPluginBody(React) {
           name: "conversation.input.dock",
           id: "dsh-schedule-later",
           // The dock stacks by order, top to bottom: dsh's To-dos are 0, the
-          // goal 10, the queue 20. Last, so the chip sits flush against the
-          // composer's top edge and reads as part of the message bar.
-          order: 30,
+          // goal 10, the queue 20, other plugins' bars higher (dsh-genui's
+          // panel is 50). 90 keeps the chip the LAST element — flush against
+          // the composer's top edge, part of the message bar, with every
+          // other bar stacking above it.
+          order: 90,
           inject: (sessionId) => {
             currentSessionId = sessionId;
             core.setSession(sessionId);

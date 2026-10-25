@@ -295,9 +295,9 @@ test('dock chip: one line — soonest message truncated, +N badge, countdown, �
   assert.equal(findAll(one, (n) => n.props?.['data-chip-more'] !== undefined).length, 0, 'no +N badge for a single message');
 });
 
-test('dock: sits last (order 30) — flush against the composer top, part of the message bar', () => {
+test('dock: sits below every other bar (order 90 > genui 50) — flush against the composer top', () => {
   const captured = applySlots(loadBundle(dumbReact));
-  assert.equal(captured.dock.order, 30);
+  assert.equal(captured.dock.order, 90);
 });
 
 test('dock chip: clicking it opens the sidebar panel straight on that message', async () => {
