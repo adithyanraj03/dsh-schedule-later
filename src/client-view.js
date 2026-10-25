@@ -1193,7 +1193,11 @@ function createClientPluginBody(React) {
     // dock root, the first ancestor level that has another child holding a
     // visible textarea is the column, and that child is the composer box.
     // The chip then matches the box's edges plus a 12px buffer, clamped so
-    // it can never overhang the column. Retried until the composer exists.
+    // it can never overhang the column. Retried until the composer exists,
+    // and re-run whenever the chip appears (before it, this component
+    // returned null and no ref was attached, so measuring at mount alone
+    // would leave a later-appearing chip on the unmeasured fallback).
+    const tasks = core.visibleTasks();
     const rootRef = React.useRef(null);
     const [insets, setInsets] = React.useState(null); // {left,right} | null
     React.useEffect(() => {
@@ -1205,6 +1209,7 @@ function createClientPluginBody(React) {
         if (!root || !root.getBoundingClientRect) return;
         let el = root;
         let box = null;
+        let fallback = null; // a preceding textarea-holder, used only if nothing follows us
         for (let i = 0; el && el.parentElement && i < 8; i += 1) {
           const parent = el.parentElement;
           const kids = parent.children || [];
@@ -1224,9 +1229,15 @@ function createClientPluginBody(React) {
               best = { el: sib, area, after };
             }
           }
-          if (best) { box = best.el; break; }
+          // A FOLLOWING sibling (the composer sits below the dock entries)
+          // wins at any level; a preceding one (another dock bar that holds
+          // a textarea, e.g. a panel's JSON editor) is only a last resort,
+          // never a reason to stop climbing.
+          if (best && best.after) { box = best.el; break; }
+          if (best && !fallback) fallback = best.el;
           el = parent;
         }
+        if (!box) box = fallback;
         if (!box) {
           if (tries++ < 20) retry = setTimeout(measure, 500);
           return;
@@ -1254,9 +1265,8 @@ function createClientPluginBody(React) {
         if (typeof window !== "undefined" && window.removeEventListener) window.removeEventListener("resize", measure);
         if (ro) ro.disconnect();
       };
-    }, [props.sessionId]);
+    }, [props.sessionId, tasks.length]);
 
-    const tasks = core.visibleTasks();
     const err = core.lastError();
     const isDark = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     const now = Date.now();
