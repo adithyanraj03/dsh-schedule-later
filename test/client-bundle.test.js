@@ -355,13 +355,14 @@ test('bundle FIX5: mobile (≤480px) — chip shows as a touch-sized strip; popo
   const cd = findAll(chip, (n) => n.props?.['data-chip-countdown'] !== undefined)[0];
   assert.doesNotMatch(texts(cd).join(''), /Sends in/, 'mobile: bare duration, no "Sends in" prefix');
 
-  // popover: near-full-width + ≥40px touch targets
+  // popover: near-full-width + ≥40px touch targets — rendered in its own
+  // hook namespace so the dock's slots (tick, ask, insets, ref) cannot bleed
+  // into the popover's state.
   const bprops = { ...captured.props.right, useInput: () => 'x', inputActions: {} };
-  react.reset();
-  const alarm = findAll(expandFn(captured.right.__comp(bprops)), (n) => n.type === 'button' && texts(n).join('').includes('Schedule'))[0];
+  const renderPop = () => renderNs(react, 'pop', captured.right.__comp, bprops);
+  const alarm = findAll(renderPop(), (n) => n.type === 'button' && texts(n).join('').includes('Schedule'))[0];
   alarm.props.onClick();
-  react.reset();
-  tree = expandFn(captured.right.__comp(bprops));
+  tree = renderPop();
   const pop = findAll(tree, (n) => n.type === 'div' && String(n.props?.style?.width || '').includes('100vw'))[0];
   assert.ok(pop, 'mobile: popover width uses ~100vw');
   const btns = findAll(tree, (n) => n.type === 'button' && /Confirm|Cancel/.test(texts(n).join('')));
