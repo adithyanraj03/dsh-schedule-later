@@ -63,7 +63,7 @@ function makeInteractiveReact() {
   return self;
 }
 
-function applySlots(mod, sessions) {
+function applySlots(mod, sessions, uiWorkspace) {
   const captured = { right: null, dock: null, sidebar: null, props: null };
   const fakeCtx = {
     inject: (names, fn) => fn({
@@ -77,6 +77,7 @@ function applySlots(mod, sessions) {
         register: (o, C) => { o.__comp = C; return o; },
       },
       sessions,
+      uiWorkspace,
     }),
   };
   mod.apply(fakeCtx);
@@ -449,7 +450,7 @@ test('sidebar: footer action registered; entry shows the ALL-sessions badge; pan
   assert.match(flat, /first task/, 'content summary present');
 });
 
-test('sidebar: entry click jumps via sessions.open; missing session → greyed out, still cancellable; empty state', async () => {
+test('sidebar: entry click jumps via sessions.open (older hosts); missing session → greyed out, still cancellable; empty state', async () => {
   const react = makeInteractiveReact();
   const mod = loadBundle(react);
   const sessions = mkSessions({ 'sess-1': { id: 'sess-1', displayTitle: 'Chat one' } });
@@ -515,6 +516,29 @@ test('sidebar: entry click jumps via sessions.open; missing session → greyed o
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(del.length, 1, 'cancel reuses the existing DELETE route');
   assert.match(del[0], /schedule\?id=t2$/);
+});
+
+test('sidebar: on dsh 0.2.x, Open chat navigates via uiWorkspace.openSession (ISessions has no open)', async () => {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  // 0.2.x ISessions face: list only — no open() at all.
+  const sessions = { list: { getSnapshot: () => ({ byId: { 'sess-1': { id: 'sess-1', displayTitle: 'Chat one' } } }) } };
+  const opened = [];
+  const captured = applySlots(mod, sessions, { openSession: (id) => opened.push(id) });
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ now: 0, tasks: [{ id: 't1', content: 'ok', sendAt: Date.now() + 60_000, conversationId: 'sess-1' }] }) });
+  react.reset();
+  let tree = expandFn(captured.sidebar.__comp({}));
+  findAll(tree, (n) => n.type === 'button' && /Scheduled/.test(texts(n).join('')))[0].props.onClick();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
+  findAll(tree, (n) => n.props?.['data-task'] === 't1')[0].props.onClick(); // open details
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
+  const card = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-detail')[0];
+  findAll(card, (n) => n.type === 'button' && /Open chat/.test(texts(n).join('')))[0].props.onClick({});
+  assert.deepEqual(opened, ['sess-1'], 'Open chat navigates through uiWorkspace.openSession');
 });
 
 test('sidebar: empty state is friendly; mobile panel spans the viewport', async () => {

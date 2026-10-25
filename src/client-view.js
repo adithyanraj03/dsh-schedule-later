@@ -1871,13 +1871,17 @@ function createClientPluginBody(React) {
       ctx.on?.('guard/scheduled-due', () => { void panelCore.refresh(); });
       ctx.on?.('guard/scheduled-dropped', () => { void panelCore.refresh(); });
       ctx.inject(inject, (scope) => {
-        // 0.3.0 session navigation, sourced from the sessions service:
-        //  - open(id) selects a session as current (unknown ids throw → false)
-        //  - list.getSnapshot().byId maps id → {displayTitle} for row labels
+        // Session navigation. dsh 0.2.x moved it: ctx.uiWorkspace.openSession(id)
+        // is the public "select a Session and show its Conversation" action;
+        // older hosts only had sessions.open(id). Try both, newest first.
+        //  - sessions.list.getSnapshot().byId maps id → {displayTitle} for labels
         const svc = scope.sessions;
         const openSession = (sid) => {
+          if (!sid) return false;
           try {
-            if (svc && typeof svc.open === "function" && sid) { svc.open(sid); return true; }
+            const uws = scope.uiWorkspace;
+            if (uws && typeof uws.openSession === "function") { uws.openSession(sid); return true; }
+            if (svc && typeof svc.open === "function") { svc.open(sid); return true; }
           } catch (err) { /* unknown session — degrade, row stays cancellable */ }
           return false;
         };
