@@ -65,20 +65,28 @@ function makeInteractiveReact() {
 
 function applySlots(mod, sessions, uiWorkspace) {
   const captured = { right: null, dock: null, sidebar: null, props: null };
-  const fakeCtx = {
-    inject: (names, fn) => fn({
-      slots: {
-        inject: (name, reg) => {
-          const r = reg({});
-          if (name === 'conversation.input.right') captured.right = r;
-          if (name === 'conversation.input.dock') captured.dock = r;
-          if (name === 'sidebar.footer.action') captured.sidebar = r;
-        },
-        register: (o, C) => { o.__comp = C; return o; },
+  // Faithful to real Cordis: the inject callback's scope carries ONLY the
+  // declared service names; everything else (uiWorkspace) lives on ctx.
+  const full = {
+    slots: {
+      inject: (name, reg) => {
+        const r = reg({});
+        if (name === 'conversation.input.right') captured.right = r;
+        if (name === 'conversation.input.dock') captured.dock = r;
+        if (name === 'sidebar.footer.action') captured.sidebar = r;
       },
-      sessions,
-      uiWorkspace,
-    }),
+      register: (o, C) => { o.__comp = C; return o; },
+    },
+    sessions,
+    uiWorkspace,
+  };
+  const fakeCtx = {
+    ...full,
+    inject: (names, fn) => {
+      const scope = {};
+      for (const n of names) if (n in full) scope[n] = full[n];
+      fn(scope);
+    },
   };
   mod.apply(fakeCtx);
   captured.props = {

@@ -1886,12 +1886,15 @@ function createClientPluginBody(React) {
         // Session navigation. dsh 0.2.x moved it: ctx.uiWorkspace.openSession(id)
         // is the public "select a Session and show its Conversation" action;
         // older hosts only had sessions.open(id). Try both, newest first.
+        // The inject scope only carries the declared services, so uiWorkspace
+        // must come from the plugin scope (ctx) — scope.uiWorkspace alone is
+        // undefined on a real host, which made Open chat a silent no-op on 0.2.x.
         //  - sessions.list.getSnapshot().byId maps id → {displayTitle} for labels
         const svc = scope.sessions;
         const openSession = (sid) => {
           if (!sid) return false;
           try {
-            const uws = scope.uiWorkspace;
+            const uws = ctx.uiWorkspace || scope.uiWorkspace;
             if (uws && typeof uws.openSession === "function") { uws.openSession(sid); return true; }
             if (svc && typeof svc.open === "function") { svc.open(sid); return true; }
           } catch (err) { /* unknown session — degrade, row stays cancellable */ }
