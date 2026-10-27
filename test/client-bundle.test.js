@@ -65,9 +65,10 @@ function makeInteractiveReact() {
 
 function applySlots(mod, sessions, uiWorkspace) {
   const captured = { right: null, dock: null, sidebar: null, props: null };
-  // Faithful to real Cordis: the inject callback's scope carries ONLY the
-  // declared service names; everything else (uiWorkspace) lives on ctx.
-  const full = {
+  // Faithful to real Cordis two ways: the inject callback's scope carries ONLY
+  // the declared service names, and ctx exposes no service properties at all —
+  // services are resolved through ctx.get(name), like dsh's own sidebar package.
+  const services = {
     slots: {
       inject: (name, reg) => {
         const r = reg({});
@@ -81,10 +82,10 @@ function applySlots(mod, sessions, uiWorkspace) {
     uiWorkspace,
   };
   const fakeCtx = {
-    ...full,
+    get: (name) => services[name],
     inject: (names, fn) => {
       const scope = {};
-      for (const n of names) if (n in full) scope[n] = full[n];
+      for (const n of names) if (n in services) scope[n] = services[n];
       fn(scope);
     },
   };
