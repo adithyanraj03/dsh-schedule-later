@@ -44,6 +44,8 @@ Restart `dsh web` and hard-refresh the browser. A **⏱️ Schedule** button app
 
 The sidebar panel lists every pending message in every chat, soonest first, each tinted by the time it sends. Click one for its details — the full message, and Send now, Change time or Cancel, each confirmed first. Click a chat's name to open it. A message in its last minute pulses.
 
+Its **Model** row shows the selection that message will run on, or "Chat default" to follow the chat. Change opens dsh's own model list — every provider, model and reasoning level — and the choice is stored on that message only: at delivery the host switches the chat's agent for the single turn and puts the chat's model straight back.
+
 ---
 
 ## Letting the model come back on its own

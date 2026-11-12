@@ -138,3 +138,16 @@ test('arms a real timer for the next due item and disposes cleanly', async () =>
   await sched.dispose();
   assert.equal(timers.size, 0, 'timer cleared on dispose');
 });
+
+test("setModel sets and clears a pending task's per-message model selection", async () => {
+  const dir = await mkdtemp();
+  const sched = await createScheduler({ dataDir: dir, clock: fakeClock(), timers: manualTimers(), deliver: async () => {} });
+  const t = await sched.schedule({ content: 'x', sendAt: 5_000, conversationId: 's' });
+  const updated = await sched.setModel(t.id, { provider: 'p', model: 'm', reasoningEffort: 'high' });
+  assert.deepEqual(updated.model, { provider: 'p', model: 'm', reasoningEffort: 'high' });
+  const raw = JSON.parse(await fs.readFile(`${dir}/tasks.json`, 'utf8'));
+  assert.deepEqual(raw.items[0].model, { provider: 'p', model: 'm', reasoningEffort: 'high' }, 'persisted to tasks.json');
+  assert.equal((await sched.setModel(t.id, null)).model, null, 'null clears back to the chat default');
+  assert.equal(await sched.setModel('nope', { provider: 'p', model: 'm' }), null, 'unknown id → null');
+  await sched.dispose();
+});

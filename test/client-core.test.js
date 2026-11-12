@@ -359,3 +359,23 @@ test('cancelTask removes locally without waiting for DELETE and notifies onChang
   release();
   await p;
 });
+
+test('setTaskModel patches the host and updates the row; null clears to chat default', async () => {
+  let task = { id: 't1', content: 'x', sendAt: Date.now() + 60_000, conversationId: 'c1' };
+  const patches = [];
+  const core = createScheduledClientState({
+    fetchState: async () => ({ now: Date.now(), tasks: [task] }),
+    postSchedule: async () => ({}),
+    cancelSchedule: async () => true,
+    setModel: async (id, model) => { patches.push([id, model]); task = { ...task, model }; return true; },
+  });
+  core.setSession('c1');
+  await core.refresh();
+  const p = core.setTaskModel('t1', { provider: 'p', model: 'm', reasoningEffort: 'high' });
+  assert.deepEqual(core.visibleTasks()[0].model, { provider: 'p', model: 'm', reasoningEffort: 'high' }, 'row updated before the PATCH resolves');
+  assert.equal(await p, true);
+  assert.deepEqual(patches, [['t1', { provider: 'p', model: 'm', reasoningEffort: 'high' }]]);
+  await core.setTaskModel('t1', null);
+  assert.equal(core.visibleTasks()[0].model, null, 'cleared to chat default');
+  assert.deepEqual(patches[1], ['t1', null]);
+});

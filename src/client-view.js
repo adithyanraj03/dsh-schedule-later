@@ -1301,6 +1301,10 @@ function createClientPluginBody(React) {
     const detailRef = React.useRef(null);
     const setDetail = (id) => { detailRef.current = id; setDetailState(id); };
     const [copied, setCopied] = React.useState(false);
+    // Which message's model picker is open, plus the loaded model catalog
+    // (dsh's own: providers → models → reasoning efforts).
+    const [modelPicker, setModelPicker] = React.useState(null);
+    const [catalog, setCatalog] = React.useState({ status: "idle", value: null, error: null });
 
     // The dock chip asks this panel to open, optionally straight to one
     // message's details card. Refresh first so the card shows fresh data.
@@ -1609,6 +1613,122 @@ function createClientPluginBody(React) {
       return hrs < 48 ? hrs + " h ago" : Math.round(hrs / 24) + " days ago";
     };
 
+    /* --- per-message model selection: dsh's own catalog ------------------- */
+    // The value shown for a selection, resolved through the loaded catalog so
+    // it reads like dsh's composer ("DeepSeek V3.2 · High"), not "provider/id".
+    const catalogModel = (sel) => {
+      if (!sel || !catalog.value) return undefined;
+      const g = (catalog.value.groups || []).find((x) => x.id === sel.provider);
+      return (g?.models || []).find((m) => m.id === sel.model);
+    };
+    const modelLabel = (sel) => (sel ? catalogModel(sel)?.name || sel.model : "");
+    const effortLabel = (sel) => {
+      if (!sel || !sel.reasoningEffort) return "";
+      const m = catalogModel(sel);
+      return (m?.reasoning?.efforts || []).find((e) => e.id === sel.reasoningEffort)?.name || sel.reasoningEffort;
+    };
+    // What the chat itself currently runs on (unknown for a chat that is not
+    // open in this browser — then the card just says "Chat default").
+    const chatSelection = (t) => {
+      try { return props.currentSelection?.(t.conversationId) || undefined; } catch { return undefined; }
+    };
+    const loadCatalog = () => {
+      if (catalog.status === "ready" || catalog.status === "loading") return;
+      setCatalog({ status: "loading", value: null, error: null });
+      Promise.resolve()
+        .then(() => props.modelCatalog?.())
+        .then((value) => { setCatalog({ status: "ready", value, error: null }); setTick((n) => n + 1); })
+        .catch((err) => { setCatalog({ status: "error", value: null, error: String(err?.message || err) }); setTick((n) => n + 1); });
+    };
+    const togglePicker = (t) => {
+      const next = modelPicker === t.id ? null : t.id;
+      setModelPicker(next);
+      if (next) loadCatalog();
+      setTick((n) => n + 1);
+    };
+    const chooseModel = (t, sel) => {
+      setModelPicker(null);
+      setTick((n) => n + 1);
+      Promise.resolve(core.setTaskModel(t.id, sel)).catch(() => {});
+    };
+
+    function modelPickerNode(t) {
+      const hair = isDark ? "rgba(255,255,255,.14)" : "rgba(0,0,0,.10)";
+      const row = {
+        display: "flex", alignItems: "center", gap: 6, width: "100%", boxSizing: "border-box",
+        padding: "4px 8px", borderRadius: 6, border: "none", background: "transparent",
+        color: "inherit", cursor: "pointer", textAlign: "left", fontSize: 12,
+      };
+      const chip = {
+        padding: "0 6px", borderRadius: 999, cursor: "pointer",
+        border: "1px solid " + (isDark ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.16)"),
+        background: "transparent", color: "inherit", fontSize: 10.5, fontWeight: 600, lineHeight: "16px",
+      };
+      const current = t.model || null;
+      const isSame = (sel) => {
+        if (!current || !sel) return !current && !sel;
+        return current.provider === sel.provider && current.model === sel.model && (current.reasoningEffort || "") === (sel.reasoningEffort || "");
+      };
+      const kids = [
+        h("button", {
+          key: "def", "data-model-choice": "chat-default", onClick: () => chooseModel(t, null),
+          style: { ...row, fontWeight: isSame(null) ? 700 : 400 },
+        }, [
+          h("span", { key: "n", style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "Chat default"),
+          chatSelection(t)
+            ? h("span", { key: "c", style: { marginLeft: "auto", opacity: .55, whiteSpace: "nowrap" } }, modelLabel(chatSelection(t)))
+            : null,
+        ]),
+      ];
+      if (catalog.status === "loading") {
+        kids.push(h("div", { key: "ld", style: { padding: "6px 8px", opacity: .6 } }, "Loading models…"));
+      } else if (catalog.status === "error") {
+        kids.push(h("div", { key: "er", style: { padding: "6px 8px", color: "#dc2626" } }, "Could not load the model list: " + (catalog.error || "unknown error")));
+      } else {
+        for (const g of (catalog.value?.groups || [])) {
+          kids.push(h("div", {
+            key: "g-" + g.id,
+            style: { fontSize: 10, fontWeight: 700, letterSpacing: ".4px", textTransform: "uppercase", opacity: .5, padding: "6px 8px 2px" },
+          }, g.name || g.id));
+          for (const m of (g.models || [])) {
+            const efforts = m.reasoning?.efforts || [];
+            kids.push(h("div", { key: "m-" + g.id + "/" + m.id, style: { display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" } }, [
+              h("button", {
+                key: "n", "data-model-choice": g.id + "/" + m.id,
+                onClick: () => chooseModel(t, { provider: g.id, model: m.id, ...(m.reasoning?.defaultEffort ? { reasoningEffort: m.reasoning.defaultEffort } : {}) }),
+                style: { ...row, flex: 1, fontWeight: efforts.length === 0 && isSame({ provider: g.id, model: m.id }) ? 700 : 400 },
+              }, [
+                h("span", { key: "t", style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.name || m.id),
+                efforts.length === 0 && isSame({ provider: g.id, model: m.id })
+                  ? h("span", { key: "k", style: { marginLeft: "auto", opacity: .6 } }, "✓")
+                  : null,
+              ]),
+              efforts.length
+                ? h("span", { key: "e", style: { display: "inline-flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end", paddingRight: 4 } },
+                    efforts.map((e) => h("button", {
+                      key: e.id, "data-model-effort": e.id, title: m.name ? m.name + " · " + (e.name || e.id) : (e.name || e.id),
+                      onClick: () => chooseModel(t, { provider: g.id, model: m.id, reasoningEffort: e.id }),
+                      style: {
+                        ...chip,
+                        ...(isSame({ provider: g.id, model: m.id, reasoningEffort: e.id })
+                          ? { background: "rgba(59,130,246,.20)", borderColor: "rgba(59,130,246,.55)" }
+                          : {}),
+                      },
+                    }, e.name || e.id)))
+                : null,
+            ]));
+          }
+        }
+      }
+      return h("div", {
+        key: "picker", "data-plugin": "dsh-schedule-later-models", className: "dsl-dock-list",
+        style: {
+          marginTop: 4, maxHeight: 200, overflowY: "auto", borderRadius: 8,
+          border: "1px solid " + hair, background: isDark ? "rgba(255,255,255,.03)" : "rgba(0,0,0,.02)",
+        },
+      }, kids);
+    }
+
     function detailCard() {
       const t = annotated.find((x) => x.id === detail);
       if (!t) return null;
@@ -1666,6 +1786,25 @@ function createClientPluginBody(React) {
               t.sessionExists ? t.sessionTitle : "Chat no longer exists"),
             t.sessionExists ? smallBtn("open", "Open chat", () => jump(t), { marginLeft: "auto" }) : null,
           ]),
+
+          label("md", "Model"),
+          h("div", { key: "model", style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" } }, [
+            t.model
+              ? h("span", {
+                  key: "v", "data-model-value": t.model.provider + "/" + t.model.model,
+                  title: t.model.provider + "/" + t.model.model + (t.model.reasoningEffort ? " · " + t.model.reasoningEffort : ""),
+                  style: { display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 },
+                }, [
+                  h("span", { key: "n", style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, modelLabel(t.model) || t.model.model),
+                  effortLabel(t.model)
+                    ? h("span", { key: "e", style: { fontSize: 10.5, fontWeight: 700, padding: "0 6px", borderRadius: 999, background: "rgba(168,85,247,.16)", color: isDark ? "#c4b5fd" : "#7c3aed" } }, effortLabel(t.model))
+                    : null,
+                ])
+              : h("span", { key: "v", "data-model-value": "chat-default", style: { opacity: .75 } },
+                  chatSelection(t) ? "Chat default · " + modelLabel(chatSelection(t)) : "Chat default (this chat's model)"),
+            smallBtn("ch", modelPicker === t.id ? "Close" : "Change", () => togglePicker(t), { marginLeft: "auto" }),
+          ]),
+          modelPicker === t.id ? modelPickerNode(t) : null,
 
           h("div", { key: "lm", style: { display: "flex", alignItems: "center", margin: "10px 0 4px" } }, [
             h("span", { key: "l", style: { fontSize: 10.5, fontWeight: 700, letterSpacing: ".4px", textTransform: "uppercase", opacity: .55 } }, "Message"),
@@ -1831,6 +1970,14 @@ function createClientPluginBody(React) {
       });
       return res.ok;
     };
+    // PATCH {model} sets (or clears, with null) one task's model override.
+    const doSetModel = async (id, model) => {
+      const res = await doFetch(schedulePath + "?id=" + encodeURIComponent(id), {
+        method: "PATCH", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ model: model || null }),
+      });
+      return res.ok;
+    };
 
     // 0.3.0 panel core: UNBOUND (session null) — fetches the FULL task list
     // (no conversationId filter) for the sidebar badge + panel; cancel reuses
@@ -1847,6 +1994,7 @@ function createClientPluginBody(React) {
       },
       cancelSchedule: doCancel,
       rescheduleSchedule: doReschedule,
+      setModel: doSetModel,
     });
     panelCore.setSession(null);
 
@@ -1913,11 +2061,33 @@ function createClientPluginBody(React) {
           try { return (svc && svc.list && svc.list.getSnapshot && svc.list.getSnapshot().byId) || {}; }
           catch (err) { return {}; }
         };
+        // Per-message model selection. Both come from dsh's own UI packages:
+        //  - modelCatalog() is the same RPC the composer's picker loads
+        //    (providers → models → reasoning efforts)
+        //  - currentSelection(id) is the chat's own selection, read from the
+        //    per-session model directory; unknown while that chat is not open.
+        const modelCatalog = async () => {
+          const remote = serviceOf("remote");
+          const response = await remote?.session?.modelCatalog?.();
+          if (!response || !response.ok) {
+            throw new Error(response?.error ? response.error.code + ": " + response.error.message : "model catalog unavailable");
+          }
+          return response.value;
+        };
+        const currentSelection = (sid) => {
+          if (!sid) return undefined;
+          try {
+            const dirs = serviceOf("modelDirectories");
+            const dir = dirs?.directoryFor?.(sid);
+            const snap = dir?.getSnapshot?.();
+            return snap?.current || undefined;
+          } catch (err) { return undefined; }
+        };
         scope.slots.inject("sidebar.footer.action", () => scope.slots.register({
           name: "sidebar.footer.action",
           id: "dsh-schedule-later",
           order: 20,
-        }, (slotProps) => ScheduledTasksPanel({ ...(slotProps || {}), panelCore, openSession, sessionById })));
+        }, (slotProps) => ScheduledTasksPanel({ ...(slotProps || {}), panelCore, openSession, sessionById, modelCatalog, currentSelection })));
         scope.slots.inject("conversation.input.right", () => scope.slots.register({
           name: "conversation.input.right",
           id: "dsh-schedule-later",

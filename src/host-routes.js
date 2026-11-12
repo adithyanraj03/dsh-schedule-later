@@ -4,12 +4,14 @@
 // secrets ever leave the host).
 //
 //   GET    /plugin-data/dsh-schedule-later/state          → {now, tasks[]}
-//   POST   /plugin-data/dsh-schedule-later/schedule       → create {content, sendAt, conversationId}
+//   POST   /plugin-data/dsh-schedule-later/schedule       → create {content, sendAt, conversationId, model?}
+//   PATCH  /plugin-data/dsh-schedule-later/schedule?id=…  → {sendAt}|{now:true}|{model}|both
 //   DELETE /plugin-data/dsh-schedule-later/schedule?id=…  → cancel
 //
-// The model-switch feature (popover dropdown, model-selected confirm route,
-// pending-switch payload) has been REMOVED. A legacy POST body containing a
-// `model` field is accepted and ignored.
+// `model` is an optional per-message override, {provider, model,
+// reasoningEffort?} — the same shape dsh's AgentModel.select() takes. The host
+// switches the chat's agent to it for that one delivery and restores the chat's
+// own selection afterwards (see delivery.js applyTaskModel). null clears it.
 
 export const STATE_PATH = '/plugin-data/dsh-schedule-later/state';
 export const SCHEDULE_PATH = '/plugin-data/dsh-schedule-later/schedule';
@@ -33,6 +35,19 @@ export function registerScheduledSendRoutes(webServer, cache) {
     for await (const chunk of req || []) text += chunk;
     if (!text) return {};
     try { return JSON.parse(text); } catch { return null; }
+  };
+
+  // A task's model selection is {provider, model, reasoningEffort?} — the same
+  // shape dsh's AgentModel.select() takes. null (or absent) clears the override.
+  const INVALID_MODEL = Symbol('invalid-model');
+  const normalizeModel = (value) => {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'object') return INVALID_MODEL;
+    const provider = typeof value.provider === 'string' ? value.provider.trim() : '';
+    const model = typeof value.model === 'string' ? value.model.trim() : '';
+    if (!provider || !model) return INVALID_MODEL;
+    const effort = typeof value.reasoningEffort === 'string' ? value.reasoningEffort.trim() : '';
+    return { provider, model, ...(effort ? { reasoningEffort: effort } : {}) };
   };
 
   const disposers = [];
@@ -65,22 +80,37 @@ export function registerScheduledSendRoutes(webServer, cache) {
         sendJson(res, 405, { error: 'method not allowed' });
         return;
       }
-      // PATCH ?id= {sendAt} moves a pending task; {now: true} sends it now.
+      // PATCH ?id= {sendAt} moves a pending task; {now: true} sends it now;
+      // {model} (alone or beside either) sets/clears its model selection.
       if (method === 'PATCH') {
         const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id');
         if (!id) { sendJson(res, 400, { error: 'missing id parameter' }); return; }
         const body = await readBody(req);
         if (body === null || typeof body !== 'object') { sendJson(res, 400, { error: 'request body must be a JSON object' }); return; }
+        const hasModel = Object.prototype.hasOwnProperty.call(body, 'model');
+        const model = hasModel ? normalizeModel(body.model) : undefined;
+        if (model === INVALID_MODEL) {
+          sendJson(res, 400, { error: 'model must be null, or {provider, model, reasoningEffort?}' });
+          return;
+        }
         let sendAt;
         if (body.now === true) {
           sendAt = now();
         } else if (typeof body.sendAt === 'number' && Number.isFinite(body.sendAt) && body.sendAt > now()) {
           sendAt = body.sendAt;
-        } else {
-          sendJson(res, 400, { error: 'give {now: true}, or a future sendAt (epoch ms)' });
+        }
+        if (!hasModel && sendAt === undefined) {
+          sendJson(res, 400, { error: 'give {now: true}, a future sendAt (epoch ms), or a model' });
           return;
         }
-        const task = await cache.scheduler?.reschedule?.(id, sendAt);
+        if (sendAt === undefined) {
+          // model-only patch: the time (and the armed timer) stay as they are
+          const task = await cache.scheduler?.setModel?.(id, model);
+          sendJson(res, task ? 200 : 404, task ? { task } : { error: 'task not found, or already sent' });
+          return;
+        }
+        let task = await cache.scheduler?.reschedule?.(id, sendAt);
+        if (task && hasModel) task = (await cache.scheduler?.setModel?.(id, model)) ?? task;
         sendJson(res, task ? 200 : 404, task ? { task } : { error: 'task not found, or already sent' });
         return;
       }
@@ -102,9 +132,14 @@ export function registerScheduledSendRoutes(webServer, cache) {
         return;
       }
       if (!conversationId) { sendJson(res, 400, { error: 'missing conversationId (the task is bound to a chat)' }); return; }
-      // body.model intentionally ignored (model switching removed)
+      // optional per-message model override: {provider, model, reasoningEffort?}
+      const model = normalizeModel(body.model);
+      if (model === INVALID_MODEL) {
+        sendJson(res, 400, { error: 'model must be null, or {provider, model, reasoningEffort?}' });
+        return;
+      }
       try {
-        const task = await cache.scheduler.schedule({ content, sendAt, conversationId });
+        const task = await cache.scheduler.schedule({ content, sendAt, conversationId, model });
         sendJson(res, 200, { task });
       } catch (err) {
         sendJson(res, 400, { error: String(err?.message || err) });

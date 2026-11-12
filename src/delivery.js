@@ -103,12 +103,58 @@ export function createFollowupDelivery({
       content: [{ type: 'text', text: deliveredText(item) }],
       source: { kind: 'user', via: pluginName },
     });
-    // runMaintenance throws when the agent is mid-turn (busy) — the throw
-    // propagates so the scheduler re-queues with backoff.
-    await agent.runMaintenance(async () => {
-      agent.followup(message);
+    // Per-message model override: switch the chat's agent to the task's model
+    // for this delivery only, then put the chat's own selection back. agent.model
+    // is dsh-agent's AgentModel (current()/select()). A failure to read or set
+    // it must never cost the message, so each step is best-effort.
+    const restore = applyTaskModel(agent, item.model);
+    try {
+      // runMaintenance throws when the agent is mid-turn (busy) — the throw
+      // propagates so the scheduler re-queues with backoff.
+      await agent.runMaintenance(async () => {
+        agent.followup(message);
+        return true;
+      });
       return true;
-    });
-    return true;
+    } finally {
+      restore?.();
+    }
+  };
+}
+
+/**
+ * Point the agent at the task's model selection, returning a restore callback
+ * for the chat's previous selection (undefined when nothing was switched).
+ * @param {any} agent live agent (agent.model is dsh-agent's AgentModel)
+ * @param {{provider:string, model:string, reasoningEffort?:string}|null} [selection]
+ * @returns {(() => void)|undefined}
+ */
+export function applyTaskModel(agent, selection) {
+  if (!selection || typeof selection.provider !== 'string' || typeof selection.model !== 'string') return undefined;
+  const model = agent?.model;
+  if (!model || typeof model.select !== 'function') return undefined;
+  let previous;
+  try {
+    previous = typeof model.current === 'function' ? model.current() : undefined;
+  } catch {
+    return undefined; // cannot read the current route → do not switch blind
+  }
+  const target = {
+    provider: selection.provider,
+    model: selection.model,
+    ...(typeof selection.reasoningEffort === 'string' && selection.reasoningEffort
+      ? { reasoningEffort: selection.reasoningEffort }
+      : {}),
+  };
+  try {
+    model.select(target);
+  } catch {
+    return undefined;
+  }
+  return () => {
+    if (!previous) return;
+    try {
+      model.select({ provider: previous.provider, model: previous.model, ...(previous.reasoningEffort === undefined ? {} : { reasoningEffort: previous.reasoningEffort }) });
+    } catch { /* the chat keeps the task's model rather than failing delivery */ }
   };
 }

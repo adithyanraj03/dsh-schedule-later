@@ -80,6 +80,8 @@ Cancel any pending message from the chip or the sidebar panel — both ask first
 
 An entry at the bottom of the sidebar, with a badge counting every pending message, opens a panel listing pending messages across **all chats**, soonest first, each row showing the message in monospace (clamped to two lines), the send time and a countdown. Messages are grouped under their chat — click the chat's name to open it. Click a message for its details: the full text, who scheduled it and when, and Send now, Change time and Cancel. Send now and Cancel ask for confirmation first. Cancel from here for any chat. Entries whose chat was deleted are greyed out but can still be cancelled.
 
+**Per-message model.** The details card has a Model row: the selection that message will run on, or "Chat default" to follow whatever the chat itself is set to. Change opens dsh's own model list — every provider and model, each with its reasoning levels as chips — and picking one stores it on that message only. At delivery the host switches the chat's agent to that selection for the single turn, then puts the chat's own model straight back, so a scheduled message can be a cheap model overnight and the chat keeps its expensive one.
+
 ![Pending messages across chats, tinted by the time they send](assets/scheduled-panel.png)
 
 Pending messages for the current chat also appear as a **one-line chip fused to the top of the message box** — the soonest message truncated, its time, a live countdown and a ✕ that cancels it after asking. With more than one pending, a “+N” badge counts the rest. Click the chip and the sidebar panel opens straight on that message, where the full text lives.

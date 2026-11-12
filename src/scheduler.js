@@ -133,6 +133,19 @@ export async function createScheduler({ dataDir, clock = { now: () => Date.now()
       arm();
       return { ...item };
     },
+    /**
+     * Set (or clear, with null) the model selection a pending task delivers on.
+     * The task's chat keeps its own model; the override is applied only around
+     * the delivery itself by the deliver callback.
+     * Returns the updated task, or null when no such task is pending.
+     */
+    async setModel(id, model) {
+      const item = queue.find((it) => it.id === id);
+      if (!item) return null;
+      item.model = model || null;
+      await persist();
+      return { ...item };
+    },
     /** Pending tasks sorted by sendAt ascending (display order). */
     list() {
       return [...queue].sort((a, b) => a.sendAt - b.sendAt).map((it) => ({ ...it }));

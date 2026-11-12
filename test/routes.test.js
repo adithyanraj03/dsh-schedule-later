@@ -93,14 +93,20 @@ test('POST schedule validates: empty content / past sendAt / missing conversatio
   assert.equal(scheduler.list().length, 0, 'nothing enqueued');
 });
 
-test('POST schedule success: 200 with the created task; body.model IGNORED (legacy clients)', async () => {
+test('POST schedule stores a per-message model selection (normalized)', async () => {
   const { call } = await mkStack();
-  const res = await call('POST', SCHEDULE_PATH, { content: 'hello', sendAt: 5_000, conversationId: 'sess-1', model: { provider: 'p', model: 'flash' } });
-  assert.equal(res.status, 200, 'model field does not error');
+  const res = await call('POST', SCHEDULE_PATH, { content: 'hello', sendAt: 5_000, conversationId: 'sess-1', model: { provider: 'p', model: 'flash', reasoningEffort: 'high' } });
+  assert.equal(res.status, 200);
   const task = jsonOf(res).task;
   assert.equal(task.content, 'hello');
   assert.equal(task.conversationId, 'sess-1');
-  assert.equal(task.model, null, 'model never stored anymore');
+  assert.deepEqual(task.model, { provider: 'p', model: 'flash', reasoningEffort: 'high' }, 'selection kept with its effort');
+});
+
+test('POST schedule: absent model stays null; malformed model is a 400', async () => {
+  const { call } = await mkStack();
+  assert.equal(jsonOf(await call('POST', SCHEDULE_PATH, { content: 'x', sendAt: 5_000, conversationId: 's' })).task.model, null);
+  assert.equal((await call('POST', SCHEDULE_PATH, { content: 'x', sendAt: 5_000, conversationId: 's', model: { provider: 'p' } })).status, 400, 'model without an id rejected');
 });
 
 test('POST schedule rejects a non-JSON body with 400', async () => {
@@ -190,4 +196,30 @@ test('PATCH refuses a past time, a missing id and an unknown task', async () => 
   assert.equal((await call('PATCH', SCHEDULE_PATH, { now: true })).status, 400, 'no id');
   assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=nope`, { now: true })).status, 404, 'unknown');
   assert.equal(scheduler.list()[0].sendAt, 5_000, 'the task is unchanged by refused calls');
+});
+
+// --- PATCH {model}: per-message model selection --------------------------------
+
+test('PATCH {model} sets a selection without moving the time; {model: null} clears it', async () => {
+  const { call, scheduler } = await mkStack();
+  const task = await scheduler.schedule({ content: 'x', sendAt: 5_000, conversationId: 'c1' });
+  const set = await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { model: { provider: 'p', model: 'm', reasoningEffort: 'high' } });
+  assert.equal(set.status, 200);
+  assert.deepEqual(jsonOf(set).task.model, { provider: 'p', model: 'm', reasoningEffort: 'high' });
+  assert.equal(scheduler.list()[0].sendAt, 5_000, 'the time is untouched by a model-only patch');
+  const cleared = await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { model: null });
+  assert.equal(cleared.status, 200);
+  assert.equal(jsonOf(cleared).task.model, null, 'null → chat default');
+});
+
+test('PATCH {sendAt, model} applies both in one call; a malformed model is 400', async () => {
+  const { call, scheduler } = await mkStack();
+  const task = await scheduler.schedule({ content: 'x', sendAt: 5_000, conversationId: 'c1' });
+  const res = await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { sendAt: 9_000, model: { provider: 'p', model: 'm' } });
+  assert.equal(res.status, 200);
+  assert.equal(jsonOf(res).task.sendAt, 9_000);
+  assert.deepEqual(jsonOf(res).task.model, { provider: 'p', model: 'm' });
+  assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { model: { provider: 'p' } })).status, 400, 'no model id');
+  assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=${task.id}`, { model: 'flash' })).status, 400, 'not an object');
+  assert.equal((await call('PATCH', `${SCHEDULE_PATH}?id=nope`, { model: null })).status, 404, 'unknown task');
 });

@@ -115,3 +115,51 @@ test('busy agent (runMaintenance throws) propagates so the scheduler retries', a
   const deliver = createFollowupDelivery({ tracking });
   await assert.rejects(() => deliver({ id: 't1', content: 'x', conversationId: 'sess-1' }), /busy/);
 });
+
+test('per-message model override: switches for the delivery, then restores the chat selection', async () => {
+  const ctx = mkCtx();
+  const tracking = installAgentTracking(ctx);
+  const calls = [];
+  let current = { provider: 'chat', model: 'default', reasoningEffort: 'medium' };
+  const agent = mkAgent('sess-1', {
+    model: { current: () => current, select: (sel) => { calls.push(sel); current = sel; } },
+  });
+  ctx.emit('agent/created', { agent });
+  const deliver = createFollowupDelivery({ tracking });
+  await deliver({ id: 't1', content: 'x', conversationId: 'sess-1', model: { provider: 'p', model: 'm', reasoningEffort: 'high' } });
+  assert.deepEqual(calls[0], { provider: 'p', model: 'm', reasoningEffort: 'high' }, 'switched before the message');
+  assert.deepEqual(calls[1], { provider: 'chat', model: 'default', reasoningEffort: 'medium' }, 'restored after it');
+  assert.equal(agent.messages.length, 1, 'delivered');
+});
+
+test('per-message model override is restored even when the delivery throws (busy agent)', async () => {
+  const ctx = mkCtx();
+  const tracking = installAgentTracking(ctx);
+  const calls = [];
+  const agent = mkAgent('sess-1', {
+    runMaintenance: async () => { throw new Error('busy'); },
+    model: { current: () => ({ provider: 'chat', model: 'default' }), select: (sel) => calls.push(sel) },
+  });
+  ctx.emit('agent/created', { agent });
+  const deliver = createFollowupDelivery({ tracking });
+  await assert.rejects(() => deliver({ id: 't1', content: 'x', conversationId: 'sess-1', model: { provider: 'p', model: 'm' } }), /busy/);
+  assert.equal(calls.length, 2, 'switched then restored despite the failure');
+  assert.deepEqual(calls[1], { provider: 'chat', model: 'default' });
+});
+
+test('no model override → the chat model is never touched; missing agent.model degrades quietly', async () => {
+  const ctx = mkCtx();
+  const tracking = installAgentTracking(ctx);
+  let touched = 0;
+  const agent = mkAgent('sess-1', { model: { current: () => ({ provider: 'c', model: 'd' }), select: () => { touched += 1; } } });
+  ctx.emit('agent/created', { agent });
+  const deliver = createFollowupDelivery({ tracking });
+  await deliver({ id: 't1', content: 'x', conversationId: 'sess-1' });
+  assert.equal(touched, 0, 'no override, no switch');
+  // a host whose agent carries no model selection still delivers
+  const agent2 = mkAgent('sess-2');
+  ctx.emit('agent/created', { agent: agent2 });
+  const ok = await deliver({ id: 't2', content: 'y', conversationId: 'sess-2', model: { provider: 'p', model: 'm' } });
+  assert.equal(ok, true);
+  assert.equal(agent2.messages.length, 1);
+});

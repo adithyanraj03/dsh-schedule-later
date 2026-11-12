@@ -139,9 +139,10 @@ export function annotateSessions(tasks, sessionsById) {
  * @param {(payload:object)=>Promise<{task:object}>} deps.postSchedule
  * @param {(id:string)=>Promise<boolean>} deps.cancelSchedule
  * @param {(id:string, when:number|'now')=>Promise<boolean>} [deps.rescheduleSchedule]
+ * @param {(id:string, model:object|null)=>Promise<boolean>} [deps.setModel]
  * @param {() => number} [deps.now]
  */
-export function createScheduledClientState({ fetchState, postSchedule, cancelSchedule, rescheduleSchedule, now = () => Date.now() } = {}) {
+export function createScheduledClientState({ fetchState, postSchedule, cancelSchedule, rescheduleSchedule, setModel, now = () => Date.now() } = {}) {
   let tasks = [];
   let error = null;
   let timer = null;
@@ -278,8 +279,31 @@ export function createScheduledClientState({ fetchState, postSchedule, cancelSch
       return ok;
     },
 
+    /**
+     * Point a pending task at a model selection ({provider, model,
+     * reasoningEffort?}), or null to follow the chat's own model. Optimistic
+     * like cancel/reschedule: the row updates first, the host PATCH persists it.
+     */
+    async setTaskModel(id, model) {
+      const next = model && typeof model === 'object' && model.provider && model.model
+        ? {
+            provider: model.provider,
+            model: model.model,
+            ...(typeof model.reasoningEffort === 'string' && model.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : {}),
+          }
+        : null;
+      tasks = tasks.map((t) => (t.id === id ? { ...t, model: next } : t));
+      if (typeof this.onChanged === 'function') this.onChanged(null);
+      let ok = false;
+      try {
+        ok = setModel ? await setModel(id, next) : false;
+      } finally {
+        if (!ok) await this.refresh().catch(() => {});
+      }
+      return ok;
+    },
+
     start(intervalMs = 4_000) {
-      if (timer) return;
       stopped = false;
       const loop = async () => {
         if (stopped) return;

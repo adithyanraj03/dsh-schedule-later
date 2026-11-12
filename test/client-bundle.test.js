@@ -63,7 +63,7 @@ function makeInteractiveReact() {
   return self;
 }
 
-function applySlots(mod, sessions, uiWorkspace) {
+function applySlots(mod, sessions, uiWorkspace, extra = {}) {
   const captured = { right: null, dock: null, sidebar: null, props: null };
   // Faithful to real Cordis two ways: the inject callback's scope carries ONLY
   // the declared service names, and ctx exposes no service properties at all —
@@ -80,6 +80,7 @@ function applySlots(mod, sessions, uiWorkspace) {
     },
     sessions,
     uiWorkspace,
+    ...extra,
   };
   const fakeCtx = {
     get: (name) => services[name],
@@ -1258,4 +1259,54 @@ test('confirm: Send now has a red button; its paper plane is amber for a day sen
   assert.equal(night.button, '#ef4444');
   assert.match(day.badge, /251,191,36/, 'amber by day');
   assert.match(night.badge, /59,130,246/, 'blue by night');
+});
+
+test('detail card: model row shows chat default, Change loads dsh catalog, choosing an effort PATCHes the task', async () => {
+  const react = makeInteractiveReact();
+  const mod = loadBundle(react);
+  const sessions = { list: { getSnapshot: () => ({ byId: { 'sess-1': { id: 'sess-1', displayTitle: 'Chat one' } } }) } };
+  const catalog = {
+    groups: [
+      { id: 'prov-a', name: 'Provider A', models: [
+        { id: 'fast', name: 'Fast', reasoning: { defaultEffort: 'low', efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } },
+        { id: 'plain', name: 'Plain model' },
+      ] },
+    ],
+  };
+  const patched = [];
+  const captured = applySlots(mod, sessions, { openSession() {} }, {
+    remote: { session: { modelCatalog: async () => ({ ok: true, value: catalog }) } },
+    modelDirectories: { directoryFor: () => ({ getSnapshot: () => ({ current: { provider: 'prov-a', model: 'fast', reasoningEffort: 'low' } }) }) },
+  });
+  globalThis.fetch = async (path, opts = {}) => {
+    if ((opts.method || 'GET') === 'PATCH') {
+      patched.push(JSON.parse(opts.body));
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({ now: 0, tasks: [{ id: 't1', content: 'ok', sendAt: Date.now() + 60_000, conversationId: 'sess-1' }] }) };
+  };
+  react.reset();
+  let tree = expandFn(captured.sidebar.__comp({}));
+  findAll(tree, (n) => n.type === 'button' && /Scheduled/.test(texts(n).join('')))[0].props.onClick();
+  react.runEffects();
+  await new Promise((r) => setTimeout(r, 5));
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
+  findAll(tree, (n) => n.props?.['data-task'] === 't1')[0].props.onClick(); // open details
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
+  const card = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-detail')[0];
+  assert.equal(findAll(card, (n) => n.props?.['data-model-value'] === 'chat-default').length, 1, 'unset task reads "Chat default"');
+  assert.match(JSON.stringify(texts(card)), /Model/, 'a Model row exists');
+  // open the picker → catalog loads → pick the high effort of "fast"
+  findAll(card, (n) => n.type === 'button' && texts(n).join('') === 'Change')[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 5));
+  react.reset();
+  tree = expandFn(captured.sidebar.__comp({}));
+  const picker = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-models')[0];
+  assert.ok(picker, 'picker rendered from the catalog');
+  assert.ok(findAll(picker, (n) => n.props?.['data-model-choice'] === 'prov-a/fast').length === 1, 'model row present');
+  findAll(picker, (n) => n.props?.['data-model-effort'] === 'high')[0].props.onClick({});
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(patched[0], { model: { provider: 'prov-a', model: 'fast', reasoningEffort: 'high' } }, 'PATCH carries the full selection');
 });
