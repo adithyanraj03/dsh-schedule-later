@@ -86,7 +86,11 @@ function applySlots(mod, sessions, uiWorkspace, extra = {}) {
     get: (name) => services[name],
     inject: (names, fn) => {
       const scope = {};
-      for (const n of names) if (n in services) scope[n] = services[n];
+      for (const n of names) {
+        // dotted names are nested services (remote.session), like cordis resolves them
+        const v = n.includes('.') ? n.split('.').reduce((o, k) => (o == null ? o : o[k]), services) : services[n];
+        if (v !== undefined) scope[n] = v;
+      }
       fn(scope);
     },
   };
