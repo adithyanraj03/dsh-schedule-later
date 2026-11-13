@@ -8,6 +8,11 @@
 
 import { fs } from './deps.js';
 
+// A task whose chat is not live is WAITING, not failing: re-check on this
+// interval (and immediately whenever an agent appears) instead of re-arming
+// at delay 0, which hot-looped hundreds of thousands of attempts.
+export const NO_LIVE_RECHECK_MS = 30_000;
+
 function queuePath(dataDir) {
   return `${dataDir}/tasks.json`;
 }
@@ -42,7 +47,10 @@ export async function createScheduler({ dataDir, clock = { now: () => Date.now()
     await fs.writeFile(path, JSON.stringify({ items: queue }, null, 2) + '\n', 'utf8');
   };
 
-  const nextDue = () => queue.reduce((m, it) => (m === null || it.sendAt < m ? it.sendAt : m), null);
+  const nextDue = () => queue.reduce((m, it) => {
+    const at = typeof it.nextTryAt === 'number' ? it.nextTryAt : it.sendAt;
+    return m === null || at < m ? at : m;
+  }, null);
 
   const fireDue = async () => {
     const now = clock.now();
@@ -53,15 +61,23 @@ export async function createScheduler({ dataDir, clock = { now: () => Date.now()
       try {
         await deliver(item);
       } catch (err) {
-        item.attempts = (item.attempts || 0) + 1;
-        item.lastError = String(err && err.message);
         if (err && err.code === 'NO_LIVE_AGENT') {
-          // target session not live yet: keep the ORIGINAL due time so the
-          // task is resent as soon as the session appears (catch-up delivery), not
-          // delayed by delivery backoff.
+          // target session not live yet: keep the ORIGINAL due time for display
+          // and ordering, but gate the next attempt behind nextTryAt so the
+          // queue re-checks periodically (and on agent/created) instead of
+          // spinning. Waiting is not a delivery failure: no attempt count, no
+          // error banner.
+          item.attempts = 0;
+          item.lastError = undefined;
+          item.waitingForChat = true;
+          item.nextTryAt = clock.now() + NO_LIVE_RECHECK_MS;
         } else {
           // keep for retry: re-add with backoff pushed due time
+          item.attempts = (item.attempts || 0) + 1;
+          item.lastError = String(err && err.message);
+          item.waitingForChat = false;
           item.sendAt = Math.max(clock.now(), now) + Math.min(60_000 * 2 ** (item.attempts - 1), 300_000);
+          item.nextTryAt = item.sendAt;
         }
         queue.push(item);
       }
@@ -129,6 +145,8 @@ export async function createScheduler({ dataDir, clock = { now: () => Date.now()
       const item = queue.find((it) => it.id === id);
       if (!item) return null;
       item.sendAt = sendAt;
+      item.nextTryAt = sendAt;
+      item.waitingForChat = false;
       await persist();
       arm();
       return { ...item };

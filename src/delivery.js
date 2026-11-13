@@ -8,9 +8,9 @@
 // kind:"user" source + followup). If the session is not live or the agent is
 // busy, delivery throws so the scheduler keeps the task queued and retries.
 //
-// Model switching has been REMOVED. Legacy tasks may still carry a `model`
-// field (written by earlier versions); it is silently ignored — the task
-// delivers on the conversation's current model.
+// Per-message model selection: a task may carry {provider, model,
+// reasoningEffort?}; delivery switches the chat's agent to it for that one
+// turn and restores the chat's own selection afterwards (applyTaskModel).
 
 export const PLUGIN_NAME = 'dsh-schedule-later';
 
@@ -78,12 +78,16 @@ export function installAgentTracking(ctx) {
  * @param {object} p
  * @param {{live:()=>any[]}} p.tracking agent tracking from installAgentTracking
  * @param {(spec:object)=>object} [p.createUserMessage] message factory (injectable)
+ * @param {(sessionId:string)=>Promise<any|null>} [p.resolveAgent] host fallback that
+ *        resumes a closed chat's agent (sessionController.resolveAgent), so a
+ *        scheduled message delivers without the chat being open in the UI
  * @param {string} [p.pluginName]
  * @returns {(item:{id:string, content:string, conversationId?:string, model?:object}) => Promise<true>}
  */
 export function createFollowupDelivery({
   tracking,
   createUserMessage = defaultCreateUserMessage,
+  resolveAgent,
   pluginName = PLUGIN_NAME,
 } = {}) {
   return async function deliver(item) {
@@ -91,9 +95,17 @@ export function createFollowupDelivery({
     // bind to the task's conversation (agent.id === conversationId): a task
     // bound to a conversation NEVER falls through to another live session
     // (chat binding); only legacy tasks without a conversationId may use any agent.
-    const agent = item.conversationId
+    let agent = item.conversationId
       ? live.find((a) => a.id === item.conversationId) ?? null
       : live[0] ?? null;
+    // The chat is not open in the UI: ask the host to resume its agent. Without
+    // this, delivery only worked after the user clicked "Open chat".
+    if (!agent && item.conversationId && typeof resolveAgent === 'function') {
+      try {
+        const resumed = await resolveAgent(item.conversationId);
+        if (resumed && typeof resumed.followup === 'function') agent = resumed;
+      } catch { /* host cannot resume it → NO_LIVE_AGENT below */ }
+    }
     if (!agent) {
       const err = new Error('no live agent for this chat; the task stays queued and is delivered once the chat is back');
       err.code = 'NO_LIVE_AGENT';

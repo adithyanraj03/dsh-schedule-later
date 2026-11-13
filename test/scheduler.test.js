@@ -12,13 +12,14 @@ function manualTimers() {
   const jobs = new Map();
   let seq = 0;
   return {
-    setTimeoutAt: (fn) => { const id = ++seq; jobs.set(id, fn); return id; },
+    setTimeoutAt: (fn, at) => { const id = ++seq; jobs.set(id, { fn, at }); return id; },
     clearTimeout: (id) => jobs.delete(id),
     async runAll() {
-      for (const fn of [...jobs.values()]) await fn();
+      for (const { fn } of [...jobs.values()]) await fn();
       jobs.clear();
     },
     get size() { return jobs.size; },
+    get nextAt() { return [...jobs.values()].reduce((m, j) => (m === null || j.at < m ? j.at : m), null); },
   };
 }
 
@@ -86,20 +87,38 @@ test('list sorts by sendAt ascending; deliver fires in sendAt order', async () =
   await sched.dispose();
 });
 
-test('NO_LIVE_AGENT keeps the ORIGINAL due time (resend on session recovery)', async () => {
+test('NO_LIVE_AGENT keeps the ORIGINAL due time, waits without spinning, recovers', async () => {
   const dir = await mkdtemp();
   const clock = fakeClock();
+  const timers = manualTimers();
   let attempts = 0;
+  let fail = true;
+  const delivered = [];
   const sched = await createScheduler({
-    dataDir: dir, clock, timers: manualTimers(),
-    deliver: async () => { attempts++; const e = new Error('no live'); e.code = 'NO_LIVE_AGENT'; throw e; },
+    dataDir: dir, clock, timers,
+    deliver: async (it) => {
+      attempts++;
+      if (fail) { const e = new Error('no live'); e.code = 'NO_LIVE_AGENT'; throw e; }
+      delivered.push(it.content);
+    },
   });
   const it = await sched.schedule({ content: 'keep', sendAt: 5_000, conversationId: 's' });
   clock.advance(6_000);
   await sched.tick();
   assert.equal(attempts, 1);
-  assert.equal(sched.list()[0].sendAt, 5_000, 'original due time preserved');
-  assert.equal(sched.list()[0].id, it.id);
+  const waiting = sched.list()[0];
+  assert.equal(waiting.sendAt, 5_000, 'original due time preserved for display/order');
+  assert.equal(waiting.id, it.id);
+  assert.equal(waiting.waitingForChat, true, 'waiting is a state, not a failure');
+  assert.equal(waiting.attempts, 0, 'no attempt counting while waiting');
+  assert.equal(waiting.lastError, undefined, 'no error banner while waiting');
+  assert.ok(timers.nextAt >= clock.now() + 30_000, 'next re-check is bounded, not delay 0 (no hot loop)');
+  // the periodic re-check fires and, once the chat can be resumed, delivers
+  fail = false;
+  clock.advance(30_000);
+  await timers.runAll();
+  assert.deepEqual(delivered, ['keep'], 'catch-up delivery on the re-check');
+  assert.equal(sched.list().length, 0);
   await sched.dispose();
 });
 

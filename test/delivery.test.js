@@ -163,3 +163,40 @@ test('no model override → the chat model is never touched; missing agent.model
   assert.equal(ok, true);
   assert.equal(agent2.messages.length, 1);
 });
+
+test('closed chat: resolveAgent resumes the agent so delivery works without opening the chat', async () => {
+  const ctx = mkCtx();
+  const tracking = installAgentTracking(ctx); // no agents tracked at all
+  const resumed = mkAgent('sess-closed');
+  const asked = [];
+  const deliver = createFollowupDelivery({
+    tracking,
+    resolveAgent: async (sid) => { asked.push(sid); return resumed; },
+  });
+  const ok = await deliver({ id: 't1', content: 'while closed', conversationId: 'sess-closed' });
+  assert.equal(ok, true);
+  assert.deepEqual(asked, ['sess-closed'], 'host asked to resume exactly the task chat');
+  assert.equal(resumed.messages.length, 1, 'delivered into the resumed agent');
+  assert.equal(resumed.messages[0].content[0].text, 'while closed');
+});
+
+test('resolveAgent failure or {error} result still degrades to NO_LIVE_AGENT', async () => {
+  const ctx = mkCtx();
+  const tracking = installAgentTracking(ctx);
+  const deliverErr = createFollowupDelivery({ tracking, resolveAgent: async () => ({ error: { code: 'session/not-found' } }) });
+  await assert.rejects(() => deliverErr({ id: 't1', content: 'x', conversationId: 'gone' }), (e) => e.code === 'NO_LIVE_AGENT');
+  const deliverThrow = createFollowupDelivery({ tracking, resolveAgent: async () => { throw new Error('resume exploded'); } });
+  await assert.rejects(() => deliverThrow({ id: 't2', content: 'x', conversationId: 'gone' }), (e) => e.code === 'NO_LIVE_AGENT');
+});
+
+test('a tracked live agent wins over resolveAgent (no needless resume)', async () => {
+  const ctx = mkCtx();
+  const tracking = installAgentTracking(ctx);
+  const live = mkAgent('sess-1');
+  ctx.emit('agent/created', { agent: live });
+  let asked = 0;
+  const deliver = createFollowupDelivery({ tracking, resolveAgent: async () => { asked++; return mkAgent('other'); } });
+  await deliver({ id: 't1', content: 'x', conversationId: 'sess-1' });
+  assert.equal(asked, 0, 'host not asked when the chat is already live');
+  assert.equal(live.messages.length, 1);
+});

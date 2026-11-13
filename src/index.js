@@ -1,9 +1,8 @@
 // dsh-schedule-later — host-side cordis plugin entry.
 // Assembles the scheduled-send service: persistent task queue (scheduler),
 // due-time delivery into the ORIGINAL conversation as a normal user bubble
-// (delivery), and the host HTTP routes the browser client talks to
-// (host-routes). Model switching has been REMOVED: legacy tasks carrying a
-// `model` field deliver normally with the field ignored.
+// (delivery, resuming closed chats through sessionController when needed),
+// and the host HTTP routes the browser client talks to (host-routes).
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -46,6 +45,18 @@ export async function apply(ctx, config = {}, deps = {}) {
   const deliverDue = deps.deliverDue ?? createFollowupDelivery({
     tracking,
     createUserMessage: deps.createUserMessage,
+    // Resume a closed chat's agent so delivery does not require the chat to be
+    // open in the UI. sessionController.resolveAgent returns the live agent or
+    // a stable {error}; anything unusable falls back to NO_LIVE_AGENT waiting.
+    resolveAgent: deps.resolveAgent ?? (async (sid) => {
+      try {
+        const ctrl = typeof ctx.get === 'function' ? ctx.get('sessionController') : undefined;
+        const resolved = await ctrl?.resolveAgent?.(sid);
+        return resolved && typeof resolved.followup === 'function' ? resolved : null;
+      } catch {
+        return null;
+      }
+    }),
   });
 
   cache.scheduler = await createScheduler({
@@ -104,6 +115,11 @@ export async function apply(ctx, config = {}, deps = {}) {
     tracking.dispose?.();
     cache.disposeRoutes?.();
   });
+
+  // Catch-up delivery: the moment any chat's agent appears (opened in the UI or
+  // resumed by delivery), retry due tasks immediately instead of waiting for
+  // the periodic re-check. tracking adopts the agent before this listener runs.
+  ctx.on?.('agent/created', () => { void cache.scheduler?.tick?.(); });
 
   // cordis treats apply()'s return value as an effect disposer: a plain
   // object here throws "TypeError: Invalid effect" at boot. Cleanup is

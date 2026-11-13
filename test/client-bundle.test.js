@@ -1314,3 +1314,15 @@ test('detail card: model row shows chat default, Change loads dsh catalog, choos
   await new Promise((r) => setTimeout(r, 10));
   assert.deepEqual(patched[0], { model: { provider: 'prov-a', model: 'fast', reasoningEffort: 'high' } }, 'PATCH carries the full selection');
 });
+
+test('detail: waiting-for-chat note replaces the failure banner while a chat is not live', async () => {
+  const render = await panelWith([
+    { id: 'w1', content: 'waiting', sendAt: Date.now() - 1_000, conversationId: 'A', waitingForChat: true, attempts: 0 },
+  ], { A: { id: 'A', displayTitle: 'Chat A' } });
+  let tree = render();
+  findAll(tree, (n) => n.props?.['data-task'] === 'w1')[0].props.onClick();
+  tree = render();
+  const card = findAll(tree, (n) => n.props?.['data-plugin'] === 'dsh-schedule-later-detail')[0];
+  assert.equal(findAll(card, (n) => n.props?.['data-waiting-for-chat'] !== undefined).length, 1, 'waiting note shown');
+  assert.equal(findAll(card, (n) => typeof n.props?.children === 'string' && /Delivery tried/.test(n.props.children)).length, 0, 'no failure banner while waiting');
+});
